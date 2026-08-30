@@ -1,0 +1,10 @@
+(library
+ (name kube_crd)
+ (public_name kube.crd)
+ (modules kube_crd)
+ (libraries kube yojson))
+
+(test
+ (name test_crd)
+ (modules test_crd)
+ (libraries kube kube.crd alcotest yojson))

@@ -1,0 +1,57 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "ocaml-k8s generated API dependency closure",
+    "version": "v1.99.0"
+  },
+  "x-ocaml-k8s-upstream-source": "https://example.invalid/kubernetes/swagger.json",
+  "x-ocaml-k8s-upstream-sha256": "fixture-sha256",
+  "definitions": {
+    "example.v1.Widget": {
+      "type": "object",
+      "required": [ "spec" ],
+      "properties": {
+        "apiVersion": { "type": "string" },
+        "kind": { "type": "string" },
+        "metadata": {
+          "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta"
+        },
+        "spec": { "$ref": "#/definitions/example.v1.WidgetSpec" }
+      },
+      "x-kubernetes-group-version-kind": [
+        { "group": "example.dev", "version": "v1", "kind": "Widget" }
+      ]
+    },
+    "example.v1.WidgetSpec": {
+      "type": "object",
+      "required": [ "image" ],
+      "properties": {
+        "image": { "type": "string" },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/io.k8s.apimachinery.pkg.util.intstr.IntOrString"
+          }
+        },
+        "replicas": { "type": "integer", "format": "int32" }
+      }
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta": {
+      "type": "object",
+      "properties": {
+        "generation": { "type": "integer", "format": "int64" },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "resourceVersion": { "type": "string" }
+      }
+    },
+    "io.k8s.apimachinery.pkg.util.intstr.IntOrString": {
+      "type": "string",
+      "format": "int-or-string"
+    }
+  }
+}

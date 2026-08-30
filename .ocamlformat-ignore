@@ -1,0 +1,4 @@
+api/v1_36/kube_api_v1_36.ml
+api/v1_36/kube_api_v1_36.mli
+codegen/fixtures/expected.ml
+codegen/fixtures/expected.mli

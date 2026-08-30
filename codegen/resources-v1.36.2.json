@@ -1,0 +1,367 @@
+{
+  "kubernetesVersion": "v1.36.2",
+  "source": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.36.2/api/openapi-spec/swagger.json",
+  "sha256": "dcede2063da1d7ad62ecb5af8adb6d7fabd0b52385a7fa0048afb491dac90450",
+  "resources": [
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.MutatingAdmissionPolicy",
+      "module": "Admissionregistration_v1",
+      "plural": "mutatingadmissionpolicies",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.MutatingAdmissionPolicyBinding",
+      "module": "Admissionregistration_v1",
+      "plural": "mutatingadmissionpolicybindings",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.MutatingWebhookConfiguration",
+      "module": "Admissionregistration_v1",
+      "plural": "mutatingwebhookconfigurations",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.ValidatingAdmissionPolicy",
+      "module": "Admissionregistration_v1",
+      "plural": "validatingadmissionpolicies",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.ValidatingAdmissionPolicyBinding",
+      "module": "Admissionregistration_v1",
+      "plural": "validatingadmissionpolicybindings",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.admissionregistration.v1.ValidatingWebhookConfiguration",
+      "module": "Admissionregistration_v1",
+      "plural": "validatingwebhookconfigurations",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.apiextensions-apiserver.pkg.apis.apiextensions.v1.CustomResourceDefinition",
+      "module": "Apiextensions_v1",
+      "plural": "customresourcedefinitions",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.kube-aggregator.pkg.apis.apiregistration.v1.APIService",
+      "module": "Apiregistration_v1",
+      "plural": "apiservices",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.apps.v1.ControllerRevision",
+      "module": "Apps_v1",
+      "plural": "controllerrevisions",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.apps.v1.DaemonSet",
+      "module": "Apps_v1",
+      "plural": "daemonsets",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.apps.v1.Deployment",
+      "module": "Apps_v1",
+      "plural": "deployments",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.apps.v1.ReplicaSet",
+      "module": "Apps_v1",
+      "plural": "replicasets",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.apps.v1.StatefulSet",
+      "module": "Apps_v1",
+      "plural": "statefulsets",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.autoscaling.v1.HorizontalPodAutoscaler",
+      "module": "Autoscaling_v1",
+      "plural": "horizontalpodautoscalers",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.autoscaling.v2.HorizontalPodAutoscaler",
+      "module": "Autoscaling_v2",
+      "plural": "horizontalpodautoscalers",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.batch.v1.CronJob",
+      "module": "Batch_v1",
+      "plural": "cronjobs",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.batch.v1.Job",
+      "module": "Batch_v1",
+      "plural": "jobs",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.certificates.v1.CertificateSigningRequest",
+      "module": "Certificates_v1",
+      "plural": "certificatesigningrequests",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.coordination.v1.Lease",
+      "module": "Coordination_v1",
+      "plural": "leases",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.ConfigMap",
+      "module": "Core_v1",
+      "plural": "configmaps",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Endpoints",
+      "module": "Core_v1",
+      "plural": "endpoints",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Event",
+      "module": "Core_v1",
+      "plural": "events",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.LimitRange",
+      "module": "Core_v1",
+      "plural": "limitranges",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Namespace",
+      "module": "Core_v1",
+      "plural": "namespaces",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Node",
+      "module": "Core_v1",
+      "plural": "nodes",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.PersistentVolume",
+      "module": "Core_v1",
+      "plural": "persistentvolumes",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.PersistentVolumeClaim",
+      "module": "Core_v1",
+      "plural": "persistentvolumeclaims",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Pod",
+      "module": "Core_v1",
+      "plural": "pods",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.PodTemplate",
+      "module": "Core_v1",
+      "plural": "podtemplates",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.ReplicationController",
+      "module": "Core_v1",
+      "plural": "replicationcontrollers",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.ResourceQuota",
+      "module": "Core_v1",
+      "plural": "resourcequotas",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Secret",
+      "module": "Core_v1",
+      "plural": "secrets",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.Service",
+      "module": "Core_v1",
+      "plural": "services",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.core.v1.ServiceAccount",
+      "module": "Core_v1",
+      "plural": "serviceaccounts",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.discovery.v1.EndpointSlice",
+      "module": "Discovery_v1",
+      "plural": "endpointslices",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.events.v1.Event",
+      "module": "Events_v1",
+      "plural": "events",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.flowcontrol.v1.FlowSchema",
+      "module": "Flowcontrol_v1",
+      "plural": "flowschemas",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.flowcontrol.v1.PriorityLevelConfiguration",
+      "module": "Flowcontrol_v1",
+      "plural": "prioritylevelconfigurations",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.networking.v1.IPAddress",
+      "module": "Networking_v1",
+      "plural": "ipaddresses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.networking.v1.Ingress",
+      "module": "Networking_v1",
+      "plural": "ingresses",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.networking.v1.IngressClass",
+      "module": "Networking_v1",
+      "plural": "ingressclasses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.networking.v1.NetworkPolicy",
+      "module": "Networking_v1",
+      "plural": "networkpolicies",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.networking.v1.ServiceCIDR",
+      "module": "Networking_v1",
+      "plural": "servicecidrs",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.node.v1.RuntimeClass",
+      "module": "Node_v1",
+      "plural": "runtimeclasses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.policy.v1.PodDisruptionBudget",
+      "module": "Policy_v1",
+      "plural": "poddisruptionbudgets",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.rbac.v1.ClusterRole",
+      "module": "Rbac_v1",
+      "plural": "clusterroles",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.rbac.v1.ClusterRoleBinding",
+      "module": "Rbac_v1",
+      "plural": "clusterrolebindings",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.rbac.v1.Role",
+      "module": "Rbac_v1",
+      "plural": "roles",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.rbac.v1.RoleBinding",
+      "module": "Rbac_v1",
+      "plural": "rolebindings",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.resource.v1.DeviceClass",
+      "module": "Resource_v1",
+      "plural": "deviceclasses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.resource.v1.ResourceClaim",
+      "module": "Resource_v1",
+      "plural": "resourceclaims",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.resource.v1.ResourceClaimTemplate",
+      "module": "Resource_v1",
+      "plural": "resourceclaimtemplates",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.resource.v1.ResourceSlice",
+      "module": "Resource_v1",
+      "plural": "resourceslices",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.scheduling.v1.PriorityClass",
+      "module": "Scheduling_v1",
+      "plural": "priorityclasses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.CSIDriver",
+      "module": "Storage_v1",
+      "plural": "csidrivers",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.CSINode",
+      "module": "Storage_v1",
+      "plural": "csinodes",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.CSIStorageCapacity",
+      "module": "Storage_v1",
+      "plural": "csistoragecapacities",
+      "scope": "Namespaced"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.StorageClass",
+      "module": "Storage_v1",
+      "plural": "storageclasses",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.VolumeAttachment",
+      "module": "Storage_v1",
+      "plural": "volumeattachments",
+      "scope": "Cluster"
+    },
+    {
+      "definition": "io.k8s.api.storage.v1.VolumeAttributesClass",
+      "module": "Storage_v1",
+      "plural": "volumeattributesclasses",
+      "scope": "Cluster"
+    }
+  ]
+}

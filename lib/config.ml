@@ -26,12 +26,30 @@ type tls = {
   server_name : string option;
 }
 
+type impersonation = {
+  user : string;
+  uid : string option;
+  groups : string list;
+  extra : (string * string list) list;
+}
+
 type t = {
   server : Uri.t;
   namespace : string option;
   credential : credential;
   tls : tls;
+  proxy_url : Uri.t option;
+  impersonation : impersonation option;
 }
+
+let default_tls =
+  {
+    ca_pem = None;
+    client_certificate_pem = None;
+    client_key_pem = None;
+    insecure_skip_verify = false;
+    server_name = None;
+  }
 
 let ( let* ) result fn =
   match result with
@@ -76,6 +94,105 @@ let strings name json =
       in
       loop [] values
   | Some _ -> Error (name ^ " must be a list")
+
+let string_lists name json =
+  match member name json with
+  | None -> Ok []
+  | Some (`Assoc fields) ->
+      let rec loop seen accumulator = function
+        | [] -> Ok (List.rev accumulator)
+        | (key, `List values) :: rest when not (List.mem key seen) ->
+            let rec values_loop accumulator = function
+              | [] -> Ok (List.rev accumulator)
+              | `String value :: values ->
+                  values_loop (value :: accumulator) values
+              | _ -> Error (name ^ "." ^ key ^ " must contain only strings")
+            in
+            let* values = values_loop [] values in
+            loop (key :: seen) ((key, values) :: accumulator) rest
+        | (key, _) :: _ when List.mem key seen ->
+            Error (name ^ " must not contain duplicate key " ^ key)
+        | (key, _) :: _ -> Error (name ^ "." ^ key ^ " must be a list")
+      in
+      loop [] [] fields
+  | Some _ -> Error (name ^ " must be an object")
+
+let valid_header_value value =
+  String.for_all
+    (fun character ->
+      let code = Char.code character in
+      character = '\t' || (code >= 0x20 && code <> 0x7f))
+    value
+
+let make_impersonation ?uid ?(groups = []) ?(extra = []) ~user () =
+  let user = String.trim user in
+  if user = "" then Error "impersonated user must not be empty"
+  else if not (valid_header_value user) then
+    Error "impersonated user contains an invalid header value"
+  else
+    let uid =
+      match Option.map String.trim uid with
+      | Some "" | None -> None
+      | Some value -> Some value
+    in
+    if
+      Option.fold ~none:false
+        ~some:(fun value -> not (valid_header_value value))
+        uid
+    then Error "impersonated UID contains an invalid header value"
+    else if
+      List.exists
+        (fun value -> String.trim value = "" || not (valid_header_value value))
+        groups
+    then Error "impersonated groups must be non-empty valid header values"
+    else
+      let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) extra in
+      let rec validate previous = function
+        | [] -> Ok { user; uid; groups; extra = sorted }
+        | (key, values) :: rest ->
+            if key = "" then Error "impersonation extra keys must not be empty"
+            else if String.lowercase_ascii key <> key then
+              Error "impersonation extra keys must be lowercase"
+            else if previous = Some key then
+              Error ("duplicate impersonation extra key " ^ key)
+            else if
+              List.exists (fun value -> not (valid_header_value value)) values
+            then Error ("impersonation extra " ^ key ^ " has an invalid value")
+            else validate (Some key) rest
+      in
+      validate None sorted
+
+let validate_server server =
+  match (Uri.scheme server, Uri.host server) with
+  | (Some "https" | Some "http"), Some _ -> Ok ()
+  | _ -> Error ("invalid Kubernetes API server URL: " ^ Uri.to_string server)
+
+let validate_proxy_url proxy =
+  let path = Uri.path proxy in
+  match
+    (Option.map String.lowercase_ascii (Uri.scheme proxy), Uri.host proxy)
+  with
+  | Some ("http" | "https" | "socks5"), Some _
+    when (path = "" || path = "/")
+         && Uri.query proxy = []
+         && Uri.fragment proxy = None -> Ok ()
+  | Some ("http" | "https" | "socks5"), Some _ ->
+      Error "proxy URL must not contain a path, query, or fragment"
+  | Some scheme, _ -> Error ("unsupported proxy URL scheme: " ^ scheme)
+  | None, _ -> Error "proxy URL must include a scheme"
+
+let make ?namespace ?(credential = Anonymous) ?(tls = default_tls) ?proxy_url
+    ?impersonation server =
+  (match validate_server server with
+  | Ok () -> ()
+  | Error message -> invalid_arg message);
+  Option.iter
+    (fun proxy ->
+      match validate_proxy_url proxy with
+      | Ok () -> ()
+      | Error message -> invalid_arg message)
+    proxy_url;
+  { server; namespace; credential; tls; proxy_url; impersonation }
 
 let named name json =
   match json with
@@ -268,10 +385,15 @@ let load_kubeconfigs ?context paths =
   in
   let* server_string = string "server" cluster in
   let server = Uri.of_string server_string in
-  let* () =
-    match (Uri.scheme server, Uri.host server) with
-    | (Some "https" | Some "http"), Some _ -> Ok ()
-    | _ -> Error ("invalid Kubernetes API server URL: " ^ server_string)
+  let* () = validate_server server in
+  let* proxy_url =
+    match string_opt "proxy-url" cluster with
+    | None -> Ok None
+    | Some value when String.trim value = "" -> Ok None
+    | Some value ->
+        let value = Uri.of_string value in
+        let* () = validate_proxy_url value in
+        Ok (Some value)
   in
   let* ca_pem =
     data_or_file ~base:cluster_base ~data_field:"certificate-authority-data"
@@ -318,11 +440,27 @@ let load_kubeconfigs ?context paths =
           "kubeconfig basic authentication requires both username and password"
     | None, None, None, None, None -> Ok Anonymous
   in
+  let* groups = strings "as-groups" user in
+  let* extra = string_lists "as-user-extra" user in
+  let uid = string_opt "as-uid" user in
+  let* impersonation =
+    match string_opt "as" user with
+    | Some value when String.trim value <> "" ->
+        let* value = make_impersonation ?uid ~groups ~extra ~user:value () in
+        Ok (Some value)
+    | Some _ | None ->
+        if uid <> None || groups <> [] || extra <> [] then
+          Error
+            "as-uid, as-groups, and as-user-extra require an impersonated user"
+        else Ok None
+  in
   Ok
     {
       server;
       namespace = string_opt "namespace" context_body;
       credential;
+      proxy_url;
+      impersonation;
       tls =
         {
           ca_pem;
@@ -373,6 +511,8 @@ let in_cluster () =
           server = Uri.of_string ("https://" ^ host ^ ":" ^ port);
           namespace;
           credential = Token_file token_path;
+          proxy_url = None;
+          impersonation = None;
           tls =
             {
               ca_pem;
@@ -460,7 +600,7 @@ let read_process_output ~timeout_seconds ~max_bytes command args environment =
     let stdout_open = ref true in
     let stderr_open = ref true in
     let status = ref None in
-    let deadline = Unix.gettimeofday () +. timeout_seconds in
+    let deadline = Clock.deadline timeout_seconds in
     let scratch = Bytes.create 8192 in
     let drain descriptor open_flag buffer =
       let rec loop () =
@@ -480,7 +620,7 @@ let read_process_output ~timeout_seconds ~max_bytes command args environment =
       loop ()
     in
     let rec loop () =
-      if Unix.gettimeofday () >= deadline then (
+      if Clock.remaining deadline = 0. then (
         terminate_child ();
         raise
           (Failure
@@ -640,6 +780,54 @@ let authorization_header config =
   | Exec exec ->
       let* token = exec_token exec in
       Ok (Some ("Bearer " ^ token))
+
+let header_key_escape key =
+  let legal = function
+    | 'a' .. 'z'
+    | 'A' .. 'Z'
+    | '0' .. '9'
+    | '!'
+    | '#'
+    | '$'
+    | '&'
+    | '\''
+    | '*'
+    | '+'
+    | '-'
+    | '.'
+    | '^'
+    | '_'
+    | '`'
+    | '|'
+    | '~' -> true
+    | _ -> false
+  in
+  let output = Buffer.create (String.length key) in
+  String.iter
+    (fun character ->
+      if legal character && character <> '%' then
+        Buffer.add_char output character
+      else
+        Buffer.add_string output (Printf.sprintf "%%%02X" (Char.code character)))
+    key;
+  Buffer.contents output
+
+let impersonation_headers config =
+  match config.impersonation with
+  | None -> []
+  | Some value ->
+      [ ("Impersonate-User", value.user) ]
+      @ Option.fold ~none:[]
+          ~some:(fun uid -> [ ("Impersonate-Uid", uid) ])
+          value.uid
+      @ List.map (fun group -> ("Impersonate-Group", group)) value.groups
+      @ List.concat_map
+          (fun (key, values) ->
+            List.map
+              (fun value ->
+                ("Impersonate-Extra-" ^ header_key_escape key, value))
+              values)
+          value.extra
 
 let invalidate_credential config =
   match config.credential with

@@ -1,0 +1,4 @@
+(library
+ (name kube_test)
+ (public_name kube.test)
+ (libraries kube uri yojson))

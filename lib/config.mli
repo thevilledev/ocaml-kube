@@ -17,12 +17,40 @@ type tls = {
   server_name : string option;
 }
 
+type impersonation
+
+val default_tls : tls
+
+val make_impersonation :
+  ?uid:string ->
+  ?groups:string list ->
+  ?extra:(string * string list) list ->
+  user:string ->
+  unit ->
+  (impersonation, string) result
+(** Validate Kubernetes user impersonation state. Extra keys must be lowercase;
+    their header suffixes are percent-escaped when requests are prepared. *)
+
 type t = {
   server : Uri.t;
   namespace : string option;
   credential : credential;
   tls : tls;
+  proxy_url : Uri.t option;
+  impersonation : impersonation option;
 }
+
+val make :
+  ?namespace:string ->
+  ?credential:credential ->
+  ?tls:tls ->
+  ?proxy_url:Uri.t ->
+  ?impersonation:impersonation ->
+  Uri.t ->
+  t
+(** Construct a validated client configuration. Explicit proxy URLs may use the
+    [http], [https], or [socks5] kubeconfig schemes; transport support is
+    checked when a connection is opened. *)
 
 val load_kubeconfig : ?context:string -> string -> (t, string) result
 (** Load one kubeconfig and select its current or explicitly named context. *)
@@ -45,6 +73,9 @@ val bearer_token : t -> (string option, string) result
 val authorization_header : t -> (string option, string) result
 (** Resolve the current Authorization value, refreshing token files and expiring
     exec-plugin credentials when needed. *)
+
+val impersonation_headers : t -> (string * string) list
+(** Return the validated Kubernetes impersonation headers for this config. *)
 
 val invalidate_credential : t -> bool
 (** Clear a refreshable credential after an authentication failure. Returns

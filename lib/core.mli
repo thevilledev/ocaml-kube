@@ -32,6 +32,18 @@ type owner_reference = {
   block_owner_deletion : bool;
 }
 
+type object_reference = {
+  api_version : string;
+  kind : string;
+  namespace : string option;
+  name : string;
+  uid : string option;
+  resource_version : Resource_version.t option;
+  field_path : string option;
+}
+(** A Kubernetes [ObjectReference], used by Events and other cross-object API
+    fields. Unlike an owner reference, its UID is optional on the wire. *)
+
 type object_meta = {
   name : string;
   namespace : string option;
@@ -82,6 +94,26 @@ val subresource_path :
   (string, string) result
 
 val object_meta_of_json : Yojson.Safe.t -> (object_meta, string) result
+
+val object_reference :
+  ?field_path:string -> api -> object_meta -> object_reference
+
+val object_reference_to_json : object_reference -> Yojson.Safe.t
+
+val make_owner_reference :
+  ?controller:bool ->
+  ?block_owner_deletion:bool ->
+  api ->
+  object_meta ->
+  (owner_reference, string) result
+(** Construct an owner reference from authoritative object metadata. A UID is
+    required because Kubernetes owner references without one are invalid. *)
+
+val controller_owner_reference :
+  api -> object_meta -> (owner_reference, string) result
+(** Construct the conventional controlling, deletion-blocking owner reference.
+*)
+
 val owner_reference_to_json : owner_reference -> Yojson.Safe.t
 val object_meta_to_json : object_meta -> Yojson.Safe.t
 val key_of_meta : object_meta -> Object_key.t

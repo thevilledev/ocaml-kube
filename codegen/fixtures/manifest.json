@@ -1,0 +1,13 @@
+{
+  "kubernetesVersion": "v1.99.0",
+  "source": "https://example.invalid/kubernetes/swagger.json",
+  "sha256": "fixture-sha256",
+  "resources": [
+    {
+      "definition": "example.v1.Widget",
+      "module": "Example_v1",
+      "plural": "widgets",
+      "scope": "Namespaced"
+    }
+  ]
+}

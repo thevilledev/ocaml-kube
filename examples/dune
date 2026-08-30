@@ -1,3 +1,49 @@
+(library
+ (name greeting)
+ (modules greeting)
+ (libraries kube kube.crd)
+ (preprocess
+  (pps kube.ppx)))
+
 (executable
  (name greeting_operator)
- (libraries kube))
+ (modules greeting_operator)
+ (libraries kube kube.crd greeting))
+
+(executable
+ (name greeting_crd)
+ (modules greeting_crd)
+ (libraries kube.crd greeting))
+
+(executable
+ (name discovery_check)
+ (modules discovery_check)
+ (libraries kube kube.api.v1_36 greeting))
+
+(executable
+ (name client_features_check)
+ (modules client_features_check)
+ (libraries kube kube.api.v1_36))
+
+(executable
+ (name multi_namespace_check)
+ (modules multi_namespace_check)
+ (libraries kube kube.crd greeting))
+
+(rule
+ (target greeting-crd.generated.yaml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{exe:greeting_crd.exe}))))
+
+(rule
+ (alias crd-check)
+ (deps greeting-crd.generated.yaml ../deploy/crd.yaml)
+ (action
+  (diff ../deploy/crd.yaml greeting-crd.generated.yaml)))
+
+(alias
+ (name codegen-check)
+ (deps
+  (alias crd-check)))

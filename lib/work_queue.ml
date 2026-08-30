@@ -124,7 +124,7 @@ module Scheduler = struct
     (stopped, timeout, due)
 
   let rec run scheduler =
-    let stopped, timeout, due = take_due scheduler (Unix.gettimeofday ()) in
+    let stopped, timeout, due = take_due scheduler (Clock.now ()) in
     List.iter (fun item -> add scheduler.queue item.key) due;
     if (not stopped) && not (Cancel.is_cancelled scheduler.cancel) then (
       (try
@@ -160,9 +160,7 @@ module Scheduler = struct
     let scheduled = not scheduler.stopped in
     if scheduled then
       scheduler.items <-
-        insert
-          { at = Unix.gettimeofday () +. max 0.0 after; key }
-          scheduler.items;
+        insert { at = Clock.deadline after; key } scheduler.items;
     Mutex.unlock scheduler.mutex;
     if scheduled then wake scheduler
 

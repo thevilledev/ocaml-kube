@@ -4,7 +4,7 @@ synopsis: "Native OCaml Kubernetes client and controller runtime"
 description:
   "A typed Kubernetes API client and controller runtime implemented with native OCaml threads and explicit cancellation."
 maintainer: ["Ville Vesilehto <ville@vesilehto.fi>"]
-authors: ["Ville Vesilehto" "kube-ocaml contributors"]
+authors: ["Ville Vesilehto" "ocaml-k8s contributors"]
 license: "Apache-2.0"
 tags: ["kubernetes" "cloud-native" "operator" "controller" "ocaml-5"]
 homepage: "https://github.com/thevilledev/ocaml-k8s"
@@ -18,6 +18,7 @@ depends: [
   "domain-name"
   "ipaddr"
   "mirage-crypto-rng"
+  "ppxlib"
   "ptime"
   "tls"
   "uri"

@@ -1,0 +1,20 @@
+(copy_files ../lib/yaml_lite.ml)
+
+(library
+ (name kube_scaffold)
+ (modules kube_scaffold yaml_lite)
+ (libraries unix yojson kube.crd))
+
+(executable
+ (name ocaml_k8s)
+ (public_name ocaml-k8s)
+ (modules ocaml_k8s)
+ (libraries kube_scaffold))
+
+(test
+ (name test_scaffold)
+ (modules test_scaffold)
+ (libraries kube_scaffold alcotest unix yojson)
+ (deps
+  fixtures/widget-crd.yaml
+  (glob_files fixtures/real-world/*.yaml)))

@@ -1,3 +1,30 @@
+(library
+ (name fake_api_server)
+ (modules fake_api_server)
+ (libraries kube))
+
 (test
  (name test_kube)
- (libraries kube alcotest))
+ (modules test_kube)
+ (libraries kube fake_api_server alcotest))
+
+(test
+ (name test_generated_api)
+ (modules test_generated_api)
+ (libraries kube kube.api.v1_36 alcotest yojson))
+
+(test
+ (name test_admission)
+ (modules test_admission)
+ (libraries kube alcotest base64 yojson)
+ (deps fixtures/webhook-cert.pem fixtures/webhook-key.pem))
+
+(test
+ (name test_testkit)
+ (modules test_testkit)
+ (libraries kube kube.test alcotest yojson))
+
+(test
+ (name test_multi_namespace)
+ (modules test_multi_namespace)
+ (libraries kube kube.test alcotest yojson uri))

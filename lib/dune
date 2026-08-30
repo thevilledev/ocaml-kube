@@ -1,7 +1,10 @@
 (library
  (name kube)
  (public_name kube)
- (private_modules yaml_lite)
+ (private_modules clock crypto_runtime yaml_lite)
+ (foreign_stubs
+  (language c)
+  (names clock_stubs))
  (libraries
   unix
   threads.posix

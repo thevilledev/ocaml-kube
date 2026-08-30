@@ -11,7 +11,19 @@ let () = Sys.set_signal Sys.sigpipe Sys.Signal_ignore
 
 type flow = Plain of Unix.file_descr | Tls of Tls_unix.t
 
+type t = {
+  config : Config.t;
+  max_idle_connections : int;
+  connect_timeout : float;
+  write_timeout : float;
+  response_header_timeout : float;
+  lock : Mutex.t;
+  mutable idle : flow list;
+  mutable closed : bool;
+}
+
 exception Body_too_large of int
+exception Request_phase_timeout of string * float
 
 let ( let* ) result fn =
   match result with
@@ -43,43 +55,420 @@ let write flow value =
   | Plain fd -> write_plain fd value 0
   | Tls tls -> Tls_unix.write tls value
 
-let close = function
+let close_flow = function
   | Plain fd -> ( try Unix.close fd with Unix.Unix_error _ -> ())
   | Tls tls -> ( try Tls_unix.close tls with _ -> ())
 
-let connect host port =
+let flow_fd = function
+  | Plain fd -> fd
+  | Tls tls -> Tls_unix.file_descr tls
+
+let valid_timeout value = Float.is_finite value && value > 0.
+
+type 'a phase_outcome = Returned of 'a | Raised of exn
+
+let with_phase_timeout ?cancel ~phase ~timeout flow fn =
+  let parent = Option.value ~default:(Cancel.create ()) cancel in
+  let outcome, timed_out =
+    Cancel.with_timeout ~parent timeout (fun phase_cancel ->
+        let fd = flow_fd flow in
+        let unregister =
+          Cancel.on_cancel phase_cancel (fun () ->
+              try Unix.shutdown fd Unix.SHUTDOWN_ALL
+              with Unix.Unix_error _ -> ())
+        in
+        Fun.protect ~finally:unregister (fun () ->
+            try Returned (fn ()) with exn -> Raised exn))
+  in
+  if timed_out then raise (Request_phase_timeout (phase, timeout))
+  else
+    match outcome with
+    | Returned value -> value
+    | Raised exn -> raise exn
+
+let create ?(max_idle_connections = 8) ?(connect_timeout = 10.)
+    ?(write_timeout = 30.) ?(response_header_timeout = 30.) config =
+  if max_idle_connections < 0 then
+    invalid_arg "Http.create: max_idle_connections must not be negative";
+  if not (valid_timeout connect_timeout) then
+    invalid_arg "Http.create: connect_timeout must be finite and positive";
+  if not (valid_timeout write_timeout) then
+    invalid_arg "Http.create: write_timeout must be finite and positive";
+  if not (valid_timeout response_header_timeout) then
+    invalid_arg
+      "Http.create: response_header_timeout must be finite and positive";
+  {
+    config;
+    max_idle_connections;
+    connect_timeout;
+    write_timeout;
+    response_header_timeout;
+    lock = Mutex.create ();
+    idle = [];
+    closed = false;
+  }
+
+let close transport =
+  Mutex.lock transport.lock;
+  let idle = transport.idle in
+  transport.idle <- [];
+  transport.closed <- true;
+  Mutex.unlock transport.lock;
+  List.iter close_flow idle
+
+let flow_is_idle flow =
   try
-    let addresses =
-      Unix.getaddrinfo host (string_of_int port)
-        [ Unix.AI_SOCKTYPE Unix.SOCK_STREAM ]
+    let readable, _, _ = Unix.select [ flow_fd flow ] [] [] 0. in
+    readable = []
+  with Unix.Unix_error _ -> false
+
+let unix_error code fn argument =
+  Printf.sprintf "%s(%s): %s" fn argument (Unix.error_message code)
+
+let resolve cancel host port =
+  let wake_read, wake_write = Unix.pipe ~cloexec:true () in
+  let lock = Mutex.create () in
+  let result = ref None in
+  let publish value =
+    Mutex.lock lock;
+    result := Some value;
+    Mutex.unlock lock;
+    try ignore (Unix.write_substring wake_write "x" 0 1)
+    with Unix.Unix_error _ -> ()
+  in
+  let worker =
+    try
+      Thread.create
+        (fun () ->
+          Fun.protect
+            ~finally:(fun () ->
+              try Unix.close wake_write with Unix.Unix_error _ -> ())
+            (fun () ->
+              publish
+                (try
+                   Ok
+                     (Unix.getaddrinfo host (string_of_int port)
+                        [ Unix.AI_SOCKTYPE Unix.SOCK_STREAM ])
+                 with Unix.Unix_error (code, fn, argument) ->
+                   Error (unix_error code fn argument))))
+        ()
+    with exn ->
+      (try Unix.close wake_read with Unix.Unix_error _ -> ());
+      (try Unix.close wake_write with Unix.Unix_error _ -> ());
+      raise exn
+  in
+  let rec wait () =
+    if Cancel.is_cancelled cancel then
+      Error "request cancelled during DNS lookup"
+    else
+      try
+        let readable, _, _ = Unix.select [ wake_read ] [] [] 0.05 in
+        if readable = [] then wait ()
+        else (
+          Thread.join worker;
+          Mutex.lock lock;
+          let value = !result in
+          Mutex.unlock lock;
+          match value with
+          | Some value -> value
+          | None -> Error "DNS lookup completed without a result")
+      with Unix.Unix_error (Unix.EINTR, _, _) -> wait ()
+  in
+  Fun.protect
+    ~finally:(fun () -> try Unix.close wake_read with Unix.Unix_error _ -> ())
+    wait
+
+let connect_address cancel address =
+  let fd =
+    Unix.socket address.Unix.ai_family address.ai_socktype address.ai_protocol
+  in
+  let fail message =
+    (try Unix.close fd with Unix.Unix_error _ -> ());
+    Error message
+  in
+  try
+    Unix.set_close_on_exec fd;
+    Unix.set_nonblock fd;
+    let connected =
+      try
+        Unix.connect fd address.ai_addr;
+        true
+      with
+      | Unix.Unix_error
+          ((Unix.EINPROGRESS | Unix.EALREADY | Unix.EWOULDBLOCK), _, _) -> false
+      | Unix.Unix_error (Unix.EISCONN, _, _) -> true
     in
-    let rec attempt errors = function
-      | [] ->
-          Error
-            (match errors with
-            | [] -> "no address found for " ^ host
-            | message :: _ -> message)
-      | address :: rest -> (
-          let fd =
-            Unix.socket address.Unix.ai_family address.ai_socktype
-              address.ai_protocol
-          in
-          try
-            Unix.set_close_on_exec fd;
-            Unix.connect fd address.ai_addr;
-            (try Unix.setsockopt fd Unix.TCP_NODELAY true
-             with Unix.Unix_error _ -> ());
-            Ok fd
-          with Unix.Unix_error (code, fn, argument) ->
-            Unix.close fd;
-            attempt
-              (Printf.sprintf "%s(%s): %s" fn argument (Unix.error_message code)
-              :: errors)
-              rest)
+    let rec await () =
+      if Cancel.is_cancelled cancel then
+        fail "request cancelled during TCP connect"
+      else
+        try
+          let _, writable, exceptional = Unix.select [] [ fd ] [ fd ] 0.05 in
+          if writable = [] && exceptional = [] then await ()
+          else
+            match Unix.getsockopt_error fd with
+            | None ->
+                Unix.clear_nonblock fd;
+                (try Unix.setsockopt fd Unix.TCP_NODELAY true
+                 with Unix.Unix_error _ -> ());
+                Ok fd
+            | Some code -> fail (unix_error code "connect" "")
+        with Unix.Unix_error (Unix.EINTR, _, _) -> await ()
     in
-    attempt [] addresses
+    if connected then (
+      Unix.clear_nonblock fd;
+      (try Unix.setsockopt fd Unix.TCP_NODELAY true
+       with Unix.Unix_error _ -> ());
+      Ok fd)
+    else await ()
   with Unix.Unix_error (code, fn, argument) ->
-    Error (Printf.sprintf "%s(%s): %s" fn argument (Unix.error_message code))
+    fail (unix_error code fn argument)
+
+let connect cancel host port =
+  let* addresses = resolve cancel host port in
+  let rec attempt errors = function
+    | [] ->
+        Error
+          (match errors with
+          | [] -> "no address found for " ^ host
+          | message :: _ -> message)
+    | _ when Cancel.is_cancelled cancel ->
+        Error "request cancelled during connection establishment"
+    | address :: rest -> (
+        match connect_address cancel address with
+        | Ok _ as connected -> connected
+        | Error message -> attempt (message :: errors) rest)
+  in
+  attempt [] addresses
+
+let endpoint_authority host port =
+  let host = if String.contains host ':' then "[" ^ host ^ "]" else host in
+  host ^ ":" ^ string_of_int port
+
+let proxy_credentials proxy =
+  match Uri.user proxy with
+  | None -> None
+  | Some user -> Some (user, Option.value ~default:"" (Uri.password proxy))
+
+let proxy_authorization proxy =
+  Option.map
+    (fun (user, password) ->
+      "Basic " ^ Base64.encode_string (user ^ ":" ^ password))
+    (proxy_credentials proxy)
+
+let read_exact_fd fd length =
+  let value = Bytes.create length in
+  let rec loop offset =
+    if offset = length then Ok (Bytes.unsafe_to_string value)
+    else
+      let count = Unix.read fd value offset (length - offset) in
+      if count = 0 then Error "proxy closed the connection during handshake"
+      else loop (offset + count)
+  in
+  loop 0
+
+let find_header_boundary value =
+  let rec loop index =
+    if index + 4 > String.length value then None
+    else if String.sub value index 4 = "\r\n\r\n" then Some index
+    else loop (index + 1)
+  in
+  loop 0
+
+let read_proxy_response_head fd =
+  let output = Buffer.create 512 in
+  let chunk = Bytes.create 4096 in
+  let rec loop () =
+    if Buffer.length output > 64 * 1024 then
+      Error "proxy response headers exceed 64 KiB"
+    else
+      let contents = Buffer.contents output in
+      match find_header_boundary contents with
+      | Some boundary ->
+          Ok
+            ( String.sub contents 0 boundary,
+              String.sub contents (boundary + 4)
+                (String.length contents - boundary - 4) )
+      | None ->
+          let count = Unix.read fd chunk 0 (Bytes.length chunk) in
+          if count = 0 then Error "proxy closed before sending response headers"
+          else (
+            Buffer.add_subbytes output chunk 0 count;
+            loop ())
+  in
+  loop ()
+
+let proxy_status head =
+  match String.split_on_char '\n' head with
+  | status_line :: _ -> (
+      match String.split_on_char ' ' (String.trim status_line) with
+      | protocol :: status :: _ when String.starts_with ~prefix:"HTTP/" protocol
+        ->
+          Option.to_result
+            ~none:("invalid proxy response status: " ^ status)
+            (int_of_string_opt status)
+      | _ -> Error ("invalid proxy response status line: " ^ status_line))
+  | [] -> Error "proxy returned an empty response"
+
+let http_connect_proxy fd proxy ~host ~port =
+  let authority = endpoint_authority host port in
+  let output = Buffer.create 256 in
+  Buffer.add_string output ("CONNECT " ^ authority ^ " HTTP/1.1\r\n");
+  Buffer.add_string output ("Host: " ^ authority ^ "\r\n");
+  Buffer.add_string output "Proxy-Connection: keep-alive\r\n";
+  Option.iter
+    (fun value ->
+      Buffer.add_string output ("Proxy-Authorization: " ^ value ^ "\r\n"))
+    (proxy_authorization proxy);
+  Buffer.add_string output "\r\n";
+  write_plain fd (Buffer.contents output) 0;
+  let* head, pending = read_proxy_response_head fd in
+  let* status = proxy_status head in
+  if status >= 200 && status < 300 && pending <> "" then
+    Error "proxy sent unexpected bytes after CONNECT response headers"
+  else if status >= 200 && status < 300 then Ok ()
+  else Error (Printf.sprintf "HTTP proxy CONNECT failed with status %d" status)
+
+let socks5_reply_error = function
+  | 1 -> "general SOCKS server failure"
+  | 2 -> "SOCKS connection not allowed"
+  | 3 -> "SOCKS network unreachable"
+  | 4 -> "SOCKS host unreachable"
+  | 5 -> "SOCKS connection refused"
+  | 6 -> "SOCKS TTL expired"
+  | 7 -> "SOCKS command not supported"
+  | 8 -> "SOCKS address type not supported"
+  | code -> Printf.sprintf "unknown SOCKS error %d" code
+
+let socks5_proxy fd proxy ~host ~port =
+  let credentials = proxy_credentials proxy in
+  let greeting =
+    match credentials with
+    | None -> "\005\001\000"
+    | Some _ -> "\005\002\000\002"
+  in
+  write_plain fd greeting 0;
+  let* selection = read_exact_fd fd 2 in
+  if Char.code selection.[0] <> 5 then Error "invalid SOCKS proxy version"
+  else
+    let* () =
+      match (Char.code selection.[1], credentials) with
+      | 0, _ -> Ok ()
+      | 2, Some (user, password) ->
+          if String.length user > 255 || String.length password > 255 then
+            Error "SOCKS proxy username and password must be at most 255 bytes"
+          else
+            let auth =
+              Buffer.create (3 + String.length user + String.length password)
+            in
+            Buffer.add_char auth '\001';
+            Buffer.add_char auth (Char.chr (String.length user));
+            Buffer.add_string auth user;
+            Buffer.add_char auth (Char.chr (String.length password));
+            Buffer.add_string auth password;
+            write_plain fd (Buffer.contents auth) 0;
+            let* response = read_exact_fd fd 2 in
+            if Char.code response.[0] <> 1 then
+              Error "invalid SOCKS authentication response version"
+            else if Char.code response.[1] <> 0 then
+              Error "SOCKS proxy authentication failed"
+            else Ok ()
+      | 2, None ->
+          Error "SOCKS proxy requested credentials that were not configured"
+      | 255, _ -> Error "SOCKS proxy rejected all authentication methods"
+      | method_, _ ->
+          Error
+            (Printf.sprintf "SOCKS proxy selected unsupported method %d" method_)
+    in
+    if String.length host > 255 then
+      Error "SOCKS destination host exceeds 255 bytes"
+    else
+      let request = Buffer.create (7 + String.length host) in
+      Buffer.add_string request "\005\001\000\003";
+      Buffer.add_char request (Char.chr (String.length host));
+      Buffer.add_string request host;
+      Buffer.add_char request (Char.chr ((port lsr 8) land 0xff));
+      Buffer.add_char request (Char.chr (port land 0xff));
+      write_plain fd (Buffer.contents request) 0;
+      let* response = read_exact_fd fd 4 in
+      if Char.code response.[0] <> 5 then Error "invalid SOCKS response version"
+      else if Char.code response.[1] <> 0 then
+        Error (socks5_reply_error (Char.code response.[1]))
+      else
+        let* address_length =
+          match Char.code response.[3] with
+          | 1 -> Ok 4
+          | 4 -> Ok 16
+          | 3 ->
+              let* length = read_exact_fd fd 1 in
+              Ok (Char.code length.[0])
+          | value ->
+              Error (Printf.sprintf "invalid SOCKS address type %d" value)
+        in
+        let* _address = read_exact_fd fd address_length in
+        let* _port = read_exact_fd fd 2 in
+        Ok ()
+
+let with_interruptible_fd cancel fd fn =
+  let lock = Mutex.create () in
+  let interruptible = ref true in
+  let interrupt () =
+    Mutex.lock lock;
+    (if !interruptible then
+       try Unix.shutdown fd Unix.SHUTDOWN_ALL with Unix.Unix_error _ -> ());
+    Mutex.unlock lock
+  in
+  let unregister = Cancel.on_cancel cancel interrupt in
+  Fun.protect
+    ~finally:(fun () ->
+      unregister ();
+      Mutex.lock lock;
+      interruptible := false;
+      Mutex.unlock lock)
+    fn
+
+let connect_via_proxy cancel proxy ~host ~port ~server_scheme =
+  let scheme =
+    Option.value ~default:""
+      (Option.map String.lowercase_ascii (Uri.scheme proxy))
+  in
+  let* proxy_host =
+    Option.to_result ~none:"proxy URL has no host" (Uri.host proxy)
+  in
+  let proxy_port =
+    Option.value
+      ~default:
+        (match scheme with
+        | "http" -> 80
+        | "https" -> 443
+        | _ -> 1080)
+      (Uri.port proxy)
+  in
+  if scheme = "https" then
+    Error
+      "HTTPS proxy URLs are not supported by the native transport; use an HTTP \
+       or SOCKS5 proxy"
+  else
+    let* fd = connect cancel proxy_host proxy_port in
+    let finish result =
+      match result with
+      | Ok () -> Ok fd
+      | Error _ as error ->
+          (try Unix.close fd with Unix.Unix_error _ -> ());
+          error
+    in
+    try
+      with_interruptible_fd cancel fd (fun () ->
+          match scheme with
+          | "http" when server_scheme = "http" -> Ok fd
+          | "http" -> finish (http_connect_proxy fd proxy ~host ~port)
+          | "socks5" -> finish (socks5_proxy fd proxy ~host ~port)
+          | unsupported ->
+              (try Unix.close fd with Unix.Unix_error _ -> ());
+              Error ("unsupported proxy URL scheme: " ^ unsupported))
+    with exn ->
+      (try Unix.close fd with Unix.Unix_error _ -> ());
+      Error ("proxy handshake failed: " ^ Printexc.to_string exn)
 
 let decode_certificates pem =
   match X509.Certificate.decode_pem_multiple pem with
@@ -134,13 +523,7 @@ let tls_client_config tls host =
   | Ok value -> Ok (value, peer_name, ip)
   | Error (`Msg message) -> Error message
 
-let rng_initialized = Atomic.make false
-
-let ensure_rng () =
-  if Atomic.compare_and_set rng_initialized false true then
-    Mirage_crypto_rng_unix.use_default ()
-
-let open_flow config =
+let open_flow_with cancel config =
   let* host =
     match Uri.host config.Config.server with
     | Some value -> Ok value
@@ -152,23 +535,56 @@ let open_flow config =
       ~default:(if scheme = "https" then 443 else 80)
       (Uri.port config.server)
   in
-  let* fd = connect host port in
-  match scheme with
-  | "http" -> Ok (Plain fd)
-  | "https" -> (
-      ensure_rng ();
-      match tls_client_config config.tls host with
-      | Error message ->
-          Unix.close fd;
-          Error message
-      | Ok (tls_config, peer_name, ip) -> (
-          try Ok (Tls (Tls_unix.client_of_fd tls_config ?host:peer_name ?ip fd))
-          with exn ->
-            (try Unix.close fd with Unix.Unix_error _ -> ());
-            Error (Printexc.to_string exn)))
-  | unsupported ->
-      Unix.close fd;
-      Error ("unsupported API server URL scheme: " ^ unsupported)
+  let* fd =
+    match config.Config.proxy_url with
+    | None -> connect cancel host port
+    | Some proxy ->
+        connect_via_proxy cancel proxy ~host ~port ~server_scheme:scheme
+  in
+  if Cancel.is_cancelled cancel then (
+    Unix.close fd;
+    Error "request cancelled during connection establishment")
+  else
+    match scheme with
+    | "http" -> Ok (Plain fd)
+    | "https" -> (
+        Crypto_runtime.ensure_rng ();
+        match tls_client_config config.tls host with
+        | Error message ->
+            Unix.close fd;
+            Error message
+        | Ok (tls_config, peer_name, ip) ->
+            with_interruptible_fd cancel fd (fun () ->
+                try
+                  Ok
+                    (Tls
+                       (Tls_unix.client_of_fd tls_config ?host:peer_name ?ip fd))
+                with exn ->
+                  (try Unix.close fd with Unix.Unix_error _ -> ());
+                  Error (Printexc.to_string exn)))
+    | unsupported ->
+        Unix.close fd;
+        Error ("unsupported API server URL scheme: " ^ unsupported)
+
+let open_flow ?cancel ~connect_timeout config =
+  let parent = Option.value ~default:(Cancel.create ()) cancel in
+  let result, timed_out =
+    Cancel.with_timeout ~parent connect_timeout (fun connect_cancel ->
+        open_flow_with connect_cancel config)
+  in
+  let externally_cancelled =
+    Option.fold ~none:false ~some:Cancel.is_cancelled cancel
+  in
+  if timed_out || externally_cancelled then (
+    (match result with
+    | Ok flow -> close_flow flow
+    | Error _ -> ());
+    if timed_out then
+      Error
+        (Printf.sprintf "connection establishment timed out after %.3fs"
+           connect_timeout)
+    else Error "request cancelled during connection establishment")
+  else result
 
 let header name headers =
   let name = String.lowercase_ascii name in
@@ -264,7 +680,7 @@ let parse_head value =
                           String.trim value ))
                   raw_headers
               in
-              Ok (status, String.concat " " reason_parts, headers))
+              Ok (protocol, status, String.concat " " reason_parts, headers))
       | _ -> Error ("invalid HTTP status line: " ^ status_line))
 
 type input = { flow : flow; pending : string; mutable offset : int }
@@ -353,8 +769,73 @@ let target config path =
          && not (String.starts_with ~prefix:"/" path) -> prefix ^ "/" ^ path
   | prefix, path -> prefix ^ path
 
-let request ?cancel ?(headers = []) ?(body = "") ?on_chunk
-    ?(max_body_bytes = 32 * 1024 * 1024) config meth path =
+let uses_forward_http_proxy config =
+  match config.Config.proxy_url with
+  | Some proxy ->
+      Option.map String.lowercase_ascii (Uri.scheme proxy) = Some "http"
+      && Option.map String.lowercase_ascii (Uri.scheme config.server)
+         = Some "http"
+  | None -> false
+
+let request_target config path =
+  let origin_target = target config path in
+  if uses_forward_http_proxy config then
+    let host = Option.value ~default:"" (Uri.host config.Config.server) in
+    let port = Option.value ~default:80 (Uri.port config.server) in
+    let authority =
+      if port = 80 then
+        if String.contains host ':' then "[" ^ host ^ "]" else host
+      else endpoint_authority host port
+    in
+    "http://" ^ authority ^ origin_target
+  else origin_target
+
+let checkout ?cancel transport =
+  let rec take () =
+    Mutex.lock transport.lock;
+    match (transport.closed, transport.idle) with
+    | true, _ ->
+        Mutex.unlock transport.lock;
+        Error "HTTP transport is closed"
+    | false, flow :: rest ->
+        transport.idle <- rest;
+        Mutex.unlock transport.lock;
+        if flow_is_idle flow then Ok flow
+        else (
+          close_flow flow;
+          take ())
+    | false, [] ->
+        Mutex.unlock transport.lock;
+        open_flow ?cancel ~connect_timeout:transport.connect_timeout
+          transport.config
+  in
+  take ()
+
+let checkin transport ~reusable flow =
+  Mutex.lock transport.lock;
+  let keep =
+    reusable && (not transport.closed)
+    && List.length transport.idle < transport.max_idle_connections
+  in
+  if keep then transport.idle <- flow :: transport.idle;
+  Mutex.unlock transport.lock;
+  if not keep then close_flow flow
+
+let connection_has_token token headers =
+  match header "connection" headers with
+  | None -> false
+  | Some value ->
+      String.split_on_char ',' value
+      |> List.exists (fun value ->
+          String.lowercase_ascii (String.trim value) = token)
+
+let connection_is_persistent protocol headers =
+  if protocol = "HTTP/1.1" then not (connection_has_token "close" headers)
+  else connection_has_token "keep-alive" headers
+
+let request_with ?cancel ?(headers = []) ?(body = "") ?on_chunk
+    ?(max_body_bytes = 32 * 1024 * 1024) ~(config : Config.t) ~acquire ~release
+    ~persistent ~write_timeout ~response_header_timeout meth path =
   let cancelled () =
     match cancel with
     | Some token -> Cancel.is_cancelled token
@@ -376,14 +857,11 @@ let request ?cancel ?(headers = []) ?(body = "") ?on_chunk
        the transport"
   else if cancelled () then Error "request cancelled"
   else
-    match open_flow config with
+    match acquire () with
     | Error _ as error -> error
     | Ok flow ->
-        let fd =
-          match flow with
-          | Plain fd -> fd
-          | Tls tls -> Tls_unix.file_descr tls
-        in
+        let fd = flow_fd flow in
+        let reusable = ref false in
         let unregister =
           match cancel with
           | None -> fun () -> ()
@@ -395,143 +873,208 @@ let request ?cancel ?(headers = []) ?(body = "") ?on_chunk
         Fun.protect
           ~finally:(fun () ->
             unregister ();
-            close flow)
+            release ~reusable:(!reusable && not (cancelled ())) flow)
           (fun () ->
-            try
-              let host = Option.value ~default:"" (Uri.host config.server) in
-              let host_for_header =
-                if String.contains host ':' then "[" ^ host ^ "]" else host
-              in
-              let scheme =
-                Option.value ~default:"https" (Uri.scheme config.server)
-              in
-              let default_port = if scheme = "https" then 443 else 80 in
-              let host_header =
-                match Uri.port config.server with
-                | Some port when port <> default_port ->
-                    host_for_header ^ ":" ^ string_of_int port
-                | _ -> host_for_header
-              in
-              let default_header name value =
-                if
-                  List.exists
-                    (fun (candidate, _) -> header_is name candidate)
-                    headers
-                then []
-                else [ (name, value) ]
-              in
-              let request_headers =
-                [
-                  ("Host", host_header);
-                  ("Connection", "close");
-                  ("Content-Length", string_of_int (String.length body));
-                ]
-                @ default_header "Accept" "application/json"
-                @ default_header "Accept-Encoding" "identity"
-                @ default_header "User-Agent" "kube-ocaml"
-                @ headers
-              in
-              let output = Buffer.create (512 + String.length body) in
-              Buffer.add_string output
-                (method_string meth ^ " " ^ target config path ^ " HTTP/1.1\r\n");
-              List.iter
-                (fun (name, value) ->
-                  Buffer.add_string output (name ^ ": " ^ value ^ "\r\n"))
-                request_headers;
-              Buffer.add_string output "\r\n";
-              Buffer.add_string output body;
-              write flow (Buffer.contents output);
-              let head_buffer = Buffer.create 4096 in
-              let read_buffer = Bytes.create 4096 in
-              let rec read_head () =
-                if Buffer.length head_buffer > 1024 * 1024 then
-                  Error "HTTP headers exceed 1 MiB"
-                else
-                  let contents = Buffer.contents head_buffer in
-                  match String.index_opt contents '\r' with
-                  | Some _ -> (
-                      let marker = "\r\n\r\n" in
-                      let rec find index =
-                        if index + 4 > String.length contents then None
-                        else if String.sub contents index 4 = marker then
-                          Some index
-                        else find (index + 1)
-                      in
-                      match find 0 with
-                      | Some boundary ->
-                          Ok
-                            ( String.sub contents 0 boundary,
-                              String.sub contents (boundary + 4)
-                                (String.length contents - boundary - 4) )
-                      | None ->
-                          let count =
-                            read flow read_buffer 0 (Bytes.length read_buffer)
-                          in
-                          if count = 0 then
-                            Error "EOF before HTTP response headers"
-                          else (
-                            Buffer.add_subbytes head_buffer read_buffer 0 count;
-                            read_head ()))
-                  | None ->
-                      let count =
-                        read flow read_buffer 0 (Bytes.length read_buffer)
-                      in
-                      if count = 0 then Error "EOF before HTTP response headers"
-                      else (
-                        Buffer.add_subbytes head_buffer read_buffer 0 count;
-                        read_head ())
-              in
-              let* head, pending = read_head () in
-              let* status, reason, response_headers = parse_head head in
-              let body_buffer = Buffer.create 4096 in
-              let buffered_bytes = ref 0 in
-              let consume value =
-                if on_chunk = None || status < 200 || status >= 300 then (
-                  buffered_bytes := !buffered_bytes + String.length value;
-                  if !buffered_bytes > max_body_bytes then
-                    raise (Body_too_large max_body_bytes);
-                  Buffer.add_string body_buffer value);
-                if status >= 200 && status < 300 then
-                  Option.iter (fun callback -> callback value) on_chunk
-              in
-              let input = { flow; pending; offset = 0 } in
-              let* () =
-                if transfer_is_chunked response_headers then
-                  read_chunked input consume
-                else
-                  match header "content-length" response_headers with
-                  | Some value -> (
-                      match int_of_string_opt value with
-                      | Some length when length >= 0 ->
-                          if on_chunk = None && length > max_body_bytes then
-                            Error
-                              (Printf.sprintf "HTTP body exceeds %d bytes"
-                                 max_body_bytes)
-                          else read_exact input length consume
-                      | _ -> Error ("invalid Content-Length: " ^ value))
-                  | None -> read_to_eof input consume
-              in
-              Ok
-                {
-                  status;
-                  reason;
-                  headers = response_headers;
-                  body = Buffer.contents body_buffer;
-                }
-            with
-            | Unix.Unix_error (code, fn, argument) ->
-                if cancelled () then Error "request cancelled"
-                else
+            let result =
+              try
+                let host = Option.value ~default:"" (Uri.host config.server) in
+                let host_for_header =
+                  if String.contains host ':' then "[" ^ host ^ "]" else host
+                in
+                let scheme =
+                  Option.value ~default:"https" (Uri.scheme config.server)
+                in
+                let default_port = if scheme = "https" then 443 else 80 in
+                let host_header =
+                  match Uri.port config.server with
+                  | Some port when port <> default_port ->
+                      host_for_header ^ ":" ^ string_of_int port
+                  | _ -> host_for_header
+                in
+                let default_header name value =
+                  if
+                    List.exists
+                      (fun (candidate, _) -> header_is name candidate)
+                      headers
+                  then []
+                  else [ (name, value) ]
+                in
+                let request_headers =
+                  [
+                    ("Host", host_header);
+                    ("Connection", if persistent then "keep-alive" else "close");
+                    ("Content-Length", string_of_int (String.length body));
+                  ]
+                  @ default_header "Accept" "application/json"
+                  @ default_header "Accept-Encoding" "identity"
+                  @ default_header "User-Agent" "ocaml-k8s"
+                  @ (if uses_forward_http_proxy config then
+                       match config.proxy_url with
+                       | Some proxy ->
+                           Option.fold ~none:[]
+                             ~some:(fun value ->
+                               default_header "Proxy-Authorization" value)
+                             (proxy_authorization proxy)
+                       | None -> []
+                     else [])
+                  @ headers
+                in
+                let output = Buffer.create (512 + String.length body) in
+                Buffer.add_string output
+                  (method_string meth ^ " " ^ request_target config path
+                 ^ " HTTP/1.1\r\n");
+                List.iter
+                  (fun (name, value) ->
+                    Buffer.add_string output (name ^ ": " ^ value ^ "\r\n"))
+                  request_headers;
+                Buffer.add_string output "\r\n";
+                Buffer.add_string output body;
+                with_phase_timeout ?cancel ~phase:"request write"
+                  ~timeout:write_timeout flow (fun () ->
+                    write flow (Buffer.contents output));
+                let head_buffer = Buffer.create 4096 in
+                let read_buffer = Bytes.create 4096 in
+                let rec read_head () =
+                  if Buffer.length head_buffer > 1024 * 1024 then
+                    Error "HTTP headers exceed 1 MiB"
+                  else
+                    let contents = Buffer.contents head_buffer in
+                    match String.index_opt contents '\r' with
+                    | Some _ -> (
+                        let marker = "\r\n\r\n" in
+                        let rec find index =
+                          if index + 4 > String.length contents then None
+                          else if String.sub contents index 4 = marker then
+                            Some index
+                          else find (index + 1)
+                        in
+                        match find 0 with
+                        | Some boundary ->
+                            Ok
+                              ( String.sub contents 0 boundary,
+                                String.sub contents (boundary + 4)
+                                  (String.length contents - boundary - 4) )
+                        | None ->
+                            let count =
+                              read flow read_buffer 0 (Bytes.length read_buffer)
+                            in
+                            if count = 0 then
+                              Error "EOF before HTTP response headers"
+                            else (
+                              Buffer.add_subbytes head_buffer read_buffer 0
+                                count;
+                              read_head ()))
+                    | None ->
+                        let count =
+                          read flow read_buffer 0 (Bytes.length read_buffer)
+                        in
+                        if count = 0 then
+                          Error "EOF before HTTP response headers"
+                        else (
+                          Buffer.add_subbytes head_buffer read_buffer 0 count;
+                          read_head ())
+                in
+                let* head, pending =
+                  with_phase_timeout ?cancel ~phase:"response headers"
+                    ~timeout:response_header_timeout flow read_head
+                in
+                let* protocol, status, reason, response_headers =
+                  parse_head head
+                in
+                let body_buffer = Buffer.create 4096 in
+                let buffered_bytes = ref 0 in
+                let consume value =
+                  if on_chunk = None || status < 200 || status >= 300 then (
+                    buffered_bytes := !buffered_bytes + String.length value;
+                    if !buffered_bytes > max_body_bytes then
+                      raise (Body_too_large max_body_bytes);
+                    Buffer.add_string body_buffer value);
+                  if status >= 200 && status < 300 then
+                    Option.iter (fun callback -> callback value) on_chunk
+                in
+                let input = { flow; pending; offset = 0 } in
+                let no_body =
+                  (status >= 100 && status < 200)
+                  || status = 204 || status = 304
+                in
+                let* body_is_framed =
+                  if no_body then Ok true
+                  else if transfer_is_chunked response_headers then
+                    let* () = read_chunked input consume in
+                    Ok true
+                  else
+                    match header "content-length" response_headers with
+                    | Some value -> (
+                        match int_of_string_opt value with
+                        | Some length when length >= 0 ->
+                            if on_chunk = None && length > max_body_bytes then
+                              Error
+                                (Printf.sprintf "HTTP body exceeds %d bytes"
+                                   max_body_bytes)
+                            else
+                              let* () = read_exact input length consume in
+                              Ok true
+                        | _ -> Error ("invalid Content-Length: " ^ value))
+                    | None ->
+                        let* () = read_to_eof input consume in
+                        Ok false
+                in
+                reusable :=
+                  persistent && body_is_framed
+                  && connection_is_persistent protocol response_headers;
+                Ok
+                  {
+                    status;
+                    reason;
+                    headers = response_headers;
+                    body = Buffer.contents body_buffer;
+                  }
+              with
+              | Unix.Unix_error (code, fn, argument) ->
+                  if cancelled () then Error "request cancelled"
+                  else
+                    Error
+                      (Printf.sprintf "%s(%s): %s" fn argument
+                         (Unix.error_message code))
+              | Tls_unix.Tls_alert _ ->
+                  Error "TLS alert received from API server"
+              | Tls_unix.Tls_failure failure ->
                   Error
-                    (Printf.sprintf "%s(%s): %s" fn argument
-                       (Unix.error_message code))
-            | Tls_unix.Tls_alert _ -> Error "TLS alert received from API server"
-            | Tls_unix.Tls_failure failure ->
-                Error
-                  (Format.asprintf "TLS failure: %a" Tls.Engine.pp_failure
-                     failure)
-            | Tls_unix.Closed_by_peer | End_of_file ->
-                Error "connection closed by peer"
-            | Body_too_large limit ->
-                Error (Printf.sprintf "HTTP body exceeds %d bytes" limit)
-            | exn -> Error (Printexc.to_string exn))
+                    (Format.asprintf "TLS failure: %a" Tls.Engine.pp_failure
+                       failure)
+              | Tls_unix.Closed_by_peer | End_of_file ->
+                  Error "connection closed by peer"
+              | Body_too_large limit ->
+                  Error (Printf.sprintf "HTTP body exceeds %d bytes" limit)
+              | Request_phase_timeout (phase, timeout) ->
+                  Error
+                    (Printf.sprintf "%s timed out after %.3fs" phase timeout)
+              | exn -> Error (Printexc.to_string exn)
+            in
+            match result with
+            | Error _ when cancelled () -> Error "request cancelled"
+            | result -> result)
+
+let request ?cancel ?headers ?body ?on_chunk ?max_body_bytes transport meth path
+    =
+  request_with ?cancel ?headers ?body ?on_chunk ?max_body_bytes
+    ~config:transport.config
+    ~acquire:(fun () -> checkout ?cancel transport)
+    ~release:(checkin transport) ~persistent:true
+    ~write_timeout:transport.write_timeout
+    ~response_header_timeout:transport.response_header_timeout meth path
+
+let request_once ?cancel ?headers ?body ?on_chunk ?max_body_bytes
+    ?(connect_timeout = 10.) ?(write_timeout = 30.)
+    ?(response_header_timeout = 30.) config meth path =
+  if not (valid_timeout connect_timeout) then
+    invalid_arg "Http.request_once: connect_timeout must be finite and positive";
+  if not (valid_timeout write_timeout) then
+    invalid_arg "Http.request_once: write_timeout must be finite and positive";
+  if not (valid_timeout response_header_timeout) then
+    invalid_arg
+      "Http.request_once: response_header_timeout must be finite and positive";
+  request_with ?cancel ?headers ?body ?on_chunk ?max_body_bytes ~config
+    ~acquire:(fun () -> open_flow ?cancel ~connect_timeout config)
+    ~release:(fun ~reusable:_ flow -> close_flow flow)
+    ~persistent:false ~write_timeout ~response_header_timeout meth path

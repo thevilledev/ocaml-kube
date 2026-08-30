@@ -1,0 +1,4 @@
+(library
+ (name kube_api_v1_36)
+ (public_name kube.api.v1_36)
+ (libraries kube yojson))

@@ -1,0 +1,190 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "generator fixture", "version": "v1.99.0" },
+  "paths": {
+    "/apis/example.dev/v1/widgets": {
+      "get": {
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v1",
+          "kind": "Widget"
+        },
+        "responses": {
+          "200": {
+            "schema": { "$ref": "#/definitions/example.v1.WidgetList" }
+          }
+        }
+      }
+    },
+    "/apis/example.dev/v1/namespaces/{namespace}/widgets": {
+      "get": {
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v1",
+          "kind": "Widget"
+        },
+        "responses": {
+          "200": {
+            "schema": { "$ref": "#/definitions/example.v1.WidgetList" }
+          }
+        }
+      }
+    },
+    "/apis/example.dev/v1/watch/widgets": {
+      "get": {
+        "x-kubernetes-action": "watchlist",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v1",
+          "kind": "Widget"
+        }
+      }
+    },
+    "/apis/example.dev/v2/clusterwidgets": {
+      "get": {
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v2",
+          "kind": "ClusterWidget"
+        },
+        "responses": {
+          "200": {
+            "schema": { "$ref": "#/definitions/example.v2.ClusterWidgetList" }
+          }
+        }
+      }
+    },
+    "/apis/example.dev/v2/watch/clusterwidgets": {
+      "get": {
+        "x-kubernetes-action": "watchlist",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v2",
+          "kind": "ClusterWidget"
+        }
+      }
+    },
+    "/apis/example.dev/v1beta1/betawidgets": {
+      "get": {
+        "x-kubernetes-action": "list",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v1beta1",
+          "kind": "BetaWidget"
+        },
+        "responses": {
+          "200": {
+            "schema": { "$ref": "#/definitions/example.v1beta1.BetaWidgetList" }
+          }
+        }
+      }
+    },
+    "/apis/example.dev/v1beta1/watch/betawidgets": {
+      "get": {
+        "x-kubernetes-action": "watchlist",
+        "x-kubernetes-group-version-kind": {
+          "group": "example.dev",
+          "version": "v1beta1",
+          "kind": "BetaWidget"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "example.v1.Widget": {
+      "type": "object",
+      "required": ["spec"],
+      "properties": {
+        "apiVersion": { "type": "string" },
+        "kind": { "type": "string" },
+        "metadata": { "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta" },
+        "spec": { "$ref": "#/definitions/example.v1.WidgetSpec" }
+      },
+      "x-kubernetes-group-version-kind": [
+        { "group": "example.dev", "version": "v1", "kind": "Widget" }
+      ]
+    },
+    "example.v1.WidgetSpec": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": { "type": "string" },
+        "ports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/io.k8s.apimachinery.pkg.util.intstr.IntOrString" }
+        },
+        "replicas": { "type": "integer", "format": "int32" }
+      }
+    },
+    "example.v1.WidgetList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/example.v1.Widget" }
+        }
+      }
+    },
+    "example.v2.ClusterWidget": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "type": "string" },
+        "kind": { "type": "string" },
+        "metadata": { "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta" }
+      },
+      "x-kubernetes-group-version-kind": [
+        { "group": "example.dev", "version": "v2", "kind": "ClusterWidget" }
+      ]
+    },
+    "example.v2.ClusterWidgetList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/example.v2.ClusterWidget" }
+        }
+      }
+    },
+    "example.v1beta1.BetaWidget": {
+      "type": "object",
+      "properties": {
+        "apiVersion": { "type": "string" },
+        "kind": { "type": "string" },
+        "metadata": { "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta" }
+      },
+      "x-kubernetes-group-version-kind": [
+        { "group": "example.dev", "version": "v1beta1", "kind": "BetaWidget" }
+      ]
+    },
+    "example.v1beta1.BetaWidgetList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/example.v1beta1.BetaWidget" }
+        }
+      }
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta": {
+      "type": "object",
+      "properties": {
+        "generation": { "type": "integer", "format": "int64" },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "resourceVersion": { "type": "string" }
+      }
+    },
+    "io.k8s.apimachinery.pkg.util.intstr.IntOrString": {
+      "type": "string",
+      "format": "int-or-string"
+    },
+    "unused.v1.Ignored": {
+      "type": "object",
+      "properties": { "ignored": { "type": "boolean" } }
+    }
+  }
+}

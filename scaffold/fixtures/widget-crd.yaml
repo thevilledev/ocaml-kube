@@ -1,0 +1,86 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: widgets.example.dev
+spec:
+  group: example.dev
+  scope: Namespaced
+  names:
+    plural: widgets
+    singular: widget
+    kind: Widget
+    shortNames:
+      - wd
+    categories:
+      - all
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [image, replicas, policy, settings]
+              properties:
+                image:
+                  type: string
+                  minLength: 1
+                  description: >-
+                    Container image reconciled by the generated
+                    operator skeleton.
+                replicas:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                policy:
+                  type: string
+                  enum: [Always, IfNotPresent]
+                settings:
+                  type: object
+                  required:
+                    - enabled
+                  properties:
+                    enabled:
+                      type: boolean
+                    endpointURL:
+                      type: string
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                opaque:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                emptyConfig:
+                  type: object
+                  additionalProperties: false
+                targetPort:
+                  anyOf:
+                    - type: integer
+                    - type: string
+                  x-kubernetes-int-or-string: true
+                embeddedObject:
+                  type: object
+                  x-kubernetes-embedded-resource: true
+                  x-kubernetes-preserve-unknown-fields: true
+                choice:
+                  type: string
+                  oneOf:
+                    - pattern: ^primary$
+                    - pattern: ^secondary$
+            status:
+              type: object
+              required: [observedGeneration, phase]
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                phase:
+                  type: string
+                  enum: [Pending, Ready, Failed]

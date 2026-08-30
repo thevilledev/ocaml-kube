@@ -28,6 +28,12 @@ Changes to watches, authentication, resource versions, patching, finalizers, or
 the controller queue should include a focused regression test as well as the
 integration run.
 
+Use the public `kube.test` transport for request-pipeline and reconciler unit
+tests that do not require API-server semantics. Keep the loopback HTTP harness
+for wire framing, socket, and connection-pool tests. A test whose result depends
+on Kubernetes defaulting, validation, admission, storage, or resource-version
+behavior belongs in the kind integration suite.
+
 ## Design principles
 
 - Keep Kubernetes machinery native to this repository.

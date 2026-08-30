@@ -3,7 +3,7 @@
 (generate_opam_files true)
 (source (github thevilledev/ocaml-k8s))
 (license Apache-2.0)
-(authors "Ville Vesilehto" "kube-ocaml contributors")
+(authors "Ville Vesilehto" "ocaml-k8s contributors")
 (maintainers "Ville Vesilehto <ville@vesilehto.fi>")
 
 (package
@@ -20,6 +20,7 @@
   domain-name
   ipaddr
   mirage-crypto-rng
+  ppxlib
   ptime
   tls
   uri

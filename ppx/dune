@@ -1,0 +1,27 @@
+(library
+ (name kube_ppx)
+ (public_name kube.ppx)
+ (kind ppx_rewriter)
+ (modules kube_ppx)
+ (libraries ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot)))
+
+(library
+ (name interface_fixture)
+ (modules interface_fixture)
+ (libraries kube.crd yojson)
+ (preprocess
+  (pps kube.ppx)))
+
+(test
+ (name test_deriving)
+ (modules test_deriving)
+ (libraries kube kube.crd interface_fixture alcotest yojson)
+ (preprocess
+  (pps kube.ppx)))
+
+(test
+ (name test_ppx_errors)
+ (modules test_ppx_errors)
+ (libraries kube_ppx ppxlib alcotest))

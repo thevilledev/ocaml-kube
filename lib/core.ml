@@ -28,6 +28,16 @@ type owner_reference = {
   block_owner_deletion : bool;
 }
 
+type object_reference = {
+  api_version : string;
+  kind : string;
+  namespace : string option;
+  name : string;
+  uid : string option;
+  resource_version : Resource_version.t option;
+  field_path : string option;
+}
+
 type object_meta = {
   name : string;
   namespace : string option;
@@ -97,6 +107,7 @@ let string_opt = function
 
 let int_opt = function
   | `Int value -> Some value
+  | `Intlit value -> int_of_string_opt value
   | _ -> None
 
 let string_map = function
@@ -176,7 +187,7 @@ let object_meta_of_json json =
             })
   | _ -> Error "metadata object is required"
 
-let owner_reference_to_json reference =
+let owner_reference_to_json (reference : owner_reference) =
   `Assoc
     [
       ("apiVersion", `String reference.api_version);
@@ -186,6 +197,53 @@ let owner_reference_to_json reference =
       ("controller", `Bool reference.controller);
       ("blockOwnerDeletion", `Bool reference.block_owner_deletion);
     ]
+
+let object_reference ?field_path api (metadata : object_meta) =
+  {
+    api_version = api_version api;
+    kind = api.kind;
+    namespace = metadata.namespace;
+    name = metadata.name;
+    uid = metadata.uid;
+    resource_version = metadata.resource_version;
+    field_path;
+  }
+
+let object_reference_to_json (reference : object_reference) =
+  let optional name fn = function
+    | None -> []
+    | Some value -> [ (name, fn value) ]
+  in
+  `Assoc
+    ([
+       ("apiVersion", `String reference.api_version);
+       ("kind", `String reference.kind);
+       ("name", `String reference.name);
+     ]
+    @ optional "namespace" (fun value -> `String value) reference.namespace
+    @ optional "uid" (fun value -> `String value) reference.uid
+    @ optional "resourceVersion"
+        (fun value -> `String (Resource_version.to_string value))
+        reference.resource_version
+    @ optional "fieldPath" (fun value -> `String value) reference.field_path)
+
+let make_owner_reference ?(controller = false) ?(block_owner_deletion = false)
+    api (metadata : object_meta) =
+  match metadata.uid with
+  | None -> Error (api.kind ^ " " ^ metadata.name ^ " has no UID")
+  | Some uid ->
+      Ok
+        {
+          api_version = api_version api;
+          kind = api.kind;
+          name = metadata.name;
+          uid;
+          controller;
+          block_owner_deletion;
+        }
+
+let controller_owner_reference api metadata =
+  make_owner_reference ~controller:true ~block_owner_deletion:true api metadata
 
 let object_meta_to_json metadata =
   let optional name fn = function

@@ -10,7 +10,7 @@ metadata:
   name: kube-greeting-operator
 rules:
   - apiGroups:
-      - demo.kube-ocaml.dev
+      - demo.ocaml-k8s.dev
     resources:
       - greetings
       - greetings/status
@@ -21,6 +21,20 @@ rules:
       - watch
       - patch
       - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
