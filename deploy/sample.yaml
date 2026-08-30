@@ -1,0 +1,7 @@
+apiVersion: demo.kube-ocaml.dev/v1alpha1
+kind: Greeting
+metadata:
+  name: hello-ocaml
+  namespace: default
+spec:
+  message: hello from OCaml

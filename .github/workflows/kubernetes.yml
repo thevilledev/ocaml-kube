@@ -1,0 +1,80 @@
+name: Kubernetes compatibility
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - minor: "1.34"
+            image: "kindest/node:v1.34.8@sha256:02722c2dedddcfc00febf5d27fbeb9b7b2c14294c82109ff4a85d89ac9ba3256"
+          - minor: "1.35"
+            image: "kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+          - minor: "1.36"
+            image: "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.5.0"
+          dune-cache: true
+      - run: opam install . --deps-only --with-test
+      - name: Install kind
+        run: |
+          curl -fsSLo kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          echo "50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54  kind" | sha256sum -c -
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+      - run: kind create cluster --name kube-ocaml --image "${{ matrix.image }}" --kubeconfig kubeconfig.kind --wait 120s
+      - run: test/integration_kind.sh
+      - if: always()
+        run: kind export logs "kind-logs-${{ matrix.minor }}" --name kube-ocaml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-${{ matrix.minor }}-logs
+          path: |
+            kind-logs-${{ matrix.minor }}
+            _build/greeting-operator.integration.log
+
+  edge-1-37:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.5.0"
+          dune-cache: true
+      - run: opam install . --deps-only --with-test
+      - name: Install kind
+        run: |
+          curl -fsSLo kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          echo "50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54  kind" | sha256sum -c -
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+      - run: kind build node-image v1.37.0 --type release --image kube-ocaml/node:v1.37.0
+      - run: kind create cluster --name kube-ocaml --image kube-ocaml/node:v1.37.0 --kubeconfig kubeconfig.kind --wait 120s
+      - run: test/integration_kind.sh
+      - if: always()
+        run: kind export logs kind-logs-1.37 --name kube-ocaml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-1.37-logs
+          path: |
+            kind-logs-1.37
+            _build/greeting-operator.integration.log

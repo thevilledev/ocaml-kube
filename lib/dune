@@ -1,0 +1,17 @@
+(library
+ (name kube)
+ (public_name kube)
+ (private_modules yaml_lite)
+ (libraries
+  unix
+  threads.posix
+  base64
+  ca-certs
+  domain-name
+  ipaddr
+  mirage-crypto-rng.unix
+  ptime.clock.os
+  tls.unix
+  uri
+  x509
+  yojson))
