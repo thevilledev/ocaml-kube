@@ -55,6 +55,9 @@ let write flow value =
   | Plain fd -> write_plain fd value 0
   | Tls tls -> Tls_unix.write tls value
 
+let read_flow = read
+let write_flow = write
+
 let close_flow = function
   | Plain fd -> ( try Unix.close fd with Unix.Unix_error _ -> ())
   | Tls tls -> ( try Tls_unix.close tls with _ -> ())
@@ -62,6 +65,101 @@ let close_flow = function
 let flow_fd = function
   | Plain fd -> fd
   | Tls tls -> Tls_unix.file_descr tls
+
+module Upgrade = struct
+  type t = {
+    flow : flow;
+    pending : string;
+    mutable pending_offset : int;
+    read_lock : Mutex.t;
+    write_lock : Mutex.t;
+    closed : bool Atomic.t;
+    mutable unregister : unit -> unit;
+    cancel : Cancel.t option;
+  }
+
+  let terminate connection =
+    if Atomic.compare_and_set connection.closed false true then (
+      connection.unregister ();
+      let fd = flow_fd connection.flow in
+      (try Unix.shutdown fd Unix.SHUTDOWN_ALL with Unix.Unix_error _ -> ());
+      close_flow connection.flow)
+
+  let create ?cancel flow pending =
+    let connection =
+      {
+        flow;
+        pending;
+        pending_offset = 0;
+        read_lock = Mutex.create ();
+        write_lock = Mutex.create ();
+        closed = Atomic.make false;
+        unregister = Fun.id;
+        cancel;
+      }
+    in
+    connection.unregister <-
+      Option.fold ~none:Fun.id
+        ~some:(fun token ->
+          Cancel.on_cancel token (fun () -> terminate connection))
+        cancel;
+    connection
+
+  let is_closed connection = Atomic.get connection.closed
+
+  let cancelled connection =
+    Option.fold ~none:false ~some:Cancel.is_cancelled connection.cancel
+
+  let protect_io connection lock fn =
+    if is_closed connection then Error "upgraded connection is closed"
+    else (
+      Mutex.lock lock;
+      Fun.protect
+        ~finally:(fun () -> Mutex.unlock lock)
+        (fun () ->
+          if is_closed connection then Error "upgraded connection is closed"
+          else
+            try Ok (fn ()) with
+            | Unix.Unix_error (code, name, argument) ->
+                if cancelled connection then
+                  Error "upgraded connection cancelled"
+                else
+                  Error
+                    (Printf.sprintf "%s(%s): %s" name argument
+                       (Unix.error_message code))
+            | Tls_unix.Tls_alert _ ->
+                Error "TLS alert received on upgraded connection"
+            | Tls_unix.Tls_failure failure ->
+                Error
+                  (Format.asprintf "TLS failure on upgraded connection: %a"
+                     Tls.Engine.pp_failure failure)
+            | Tls_unix.Closed_by_peer | End_of_file ->
+                Error "upgraded connection closed by peer"
+            | exn -> Error (Printexc.to_string exn)))
+
+  let read connection buffer offset length =
+    if offset < 0 || length < 0 || offset > Bytes.length buffer - length then
+      invalid_arg "Http.Upgrade.read: invalid byte range";
+    if length = 0 then Ok 0
+    else
+      protect_io connection connection.read_lock (fun () ->
+          let available =
+            String.length connection.pending - connection.pending_offset
+          in
+          if available > 0 then (
+            let count = min available length in
+            Bytes.blit_string connection.pending connection.pending_offset
+              buffer offset count;
+            connection.pending_offset <- connection.pending_offset + count;
+            count)
+          else read_flow connection.flow buffer offset length)
+
+  let write connection value =
+    protect_io connection connection.write_lock (fun () ->
+        write_flow connection.flow value)
+
+  let close = terminate
+end
 
 let valid_timeout value = Float.is_finite value && value > 0.
 
@@ -683,6 +781,35 @@ let parse_head value =
               Ok (protocol, status, String.concat " " reason_parts, headers))
       | _ -> Error ("invalid HTTP status line: " ^ status_line))
 
+let read_response_head ?cancel ~timeout flow =
+  let head_buffer = Buffer.create 4096 in
+  let read_buffer = Bytes.create 4096 in
+  let rec read_head () =
+    if Buffer.length head_buffer > 1024 * 1024 then
+      Error "HTTP headers exceed 1 MiB"
+    else
+      let contents = Buffer.contents head_buffer in
+      let marker = "\r\n\r\n" in
+      let rec find index =
+        if index + 4 > String.length contents then None
+        else if String.sub contents index 4 = marker then Some index
+        else find (index + 1)
+      in
+      match find 0 with
+      | Some boundary ->
+          Ok
+            ( String.sub contents 0 boundary,
+              String.sub contents (boundary + 4)
+                (String.length contents - boundary - 4) )
+      | None ->
+          let count = read flow read_buffer 0 (Bytes.length read_buffer) in
+          if count = 0 then Error "EOF before HTTP response headers"
+          else (
+            Buffer.add_subbytes head_buffer read_buffer 0 count;
+            read_head ())
+  in
+  with_phase_timeout ?cancel ~phase:"response headers" ~timeout flow read_head
+
 type input = { flow : flow; pending : string; mutable offset : int }
 
 let input_read input buffer off len =
@@ -932,51 +1059,9 @@ let request_with ?cancel ?(headers = []) ?(body = "") ?on_chunk
                 with_phase_timeout ?cancel ~phase:"request write"
                   ~timeout:write_timeout flow (fun () ->
                     write flow (Buffer.contents output));
-                let head_buffer = Buffer.create 4096 in
-                let read_buffer = Bytes.create 4096 in
-                let rec read_head () =
-                  if Buffer.length head_buffer > 1024 * 1024 then
-                    Error "HTTP headers exceed 1 MiB"
-                  else
-                    let contents = Buffer.contents head_buffer in
-                    match String.index_opt contents '\r' with
-                    | Some _ -> (
-                        let marker = "\r\n\r\n" in
-                        let rec find index =
-                          if index + 4 > String.length contents then None
-                          else if String.sub contents index 4 = marker then
-                            Some index
-                          else find (index + 1)
-                        in
-                        match find 0 with
-                        | Some boundary ->
-                            Ok
-                              ( String.sub contents 0 boundary,
-                                String.sub contents (boundary + 4)
-                                  (String.length contents - boundary - 4) )
-                        | None ->
-                            let count =
-                              read flow read_buffer 0 (Bytes.length read_buffer)
-                            in
-                            if count = 0 then
-                              Error "EOF before HTTP response headers"
-                            else (
-                              Buffer.add_subbytes head_buffer read_buffer 0
-                                count;
-                              read_head ()))
-                    | None ->
-                        let count =
-                          read flow read_buffer 0 (Bytes.length read_buffer)
-                        in
-                        if count = 0 then
-                          Error "EOF before HTTP response headers"
-                        else (
-                          Buffer.add_subbytes head_buffer read_buffer 0 count;
-                          read_head ())
-                in
                 let* head, pending =
-                  with_phase_timeout ?cancel ~phase:"response headers"
-                    ~timeout:response_header_timeout flow read_head
+                  read_response_head ?cancel ~timeout:response_header_timeout
+                    flow
                 in
                 let* protocol, status, reason, response_headers =
                   parse_head head
@@ -1078,3 +1163,174 @@ let request_once ?cancel ?headers ?body ?on_chunk ?max_body_bytes
     ~acquire:(fun () -> open_flow ?cancel ~connect_timeout config)
     ~release:(fun ~reusable:_ flow -> close_flow flow)
     ~persistent:false ~write_timeout ~response_header_timeout meth path
+
+type upgrade_result =
+  | Upgraded of { response : response; connection : Upgrade.t }
+  | Response of response
+
+let upgrade_once ?cancel ?(headers = []) ?(max_body_bytes = 1024 * 1024)
+    ?(connect_timeout = 10.) ?(write_timeout = 30.)
+    ?(response_header_timeout = 30.) (config : Config.t) path =
+  let cancelled () = Option.fold ~none:false ~some:Cancel.is_cancelled cancel in
+  if max_body_bytes < 0 then Error "max_body_bytes must not be negative"
+  else if not (valid_timeout connect_timeout) then
+    Error "connect_timeout must be finite and positive"
+  else if not (valid_timeout write_timeout) then
+    Error "write_timeout must be finite and positive"
+  else if not (valid_timeout response_header_timeout) then
+    Error "response_header_timeout must be finite and positive"
+  else if not (valid_request_target path) then
+    Error "request path must be an encoded absolute path without whitespace"
+  else if
+    List.exists
+      (fun (name, value) ->
+        (not (valid_header_name name)) || not (valid_header_value value))
+      headers
+  then Error "request header contains an invalid name or value"
+  else if
+    List.exists
+      (fun (name, _) ->
+        List.exists (header_is name)
+          [ "host"; "content-length"; "transfer-encoding"; "connection" ])
+      headers
+  then
+    Error
+      "Host, Content-Length, Transfer-Encoding, and Connection are managed by \
+       the transport"
+  else if not (List.exists (fun (name, _) -> header_is "upgrade" name) headers)
+  then Error "an Upgrade request header is required"
+  else if cancelled () then Error "request cancelled"
+  else
+    let* flow = open_flow ?cancel ~connect_timeout config in
+    let transferred = ref false in
+    Fun.protect
+      ~finally:(fun () -> if not !transferred then close_flow flow)
+      (fun () ->
+        try
+          let host = Option.value ~default:"" (Uri.host config.server) in
+          let host_for_header =
+            if String.contains host ':' then "[" ^ host ^ "]" else host
+          in
+          let scheme =
+            Option.value ~default:"https" (Uri.scheme config.server)
+          in
+          let default_port = if scheme = "https" then 443 else 80 in
+          let host_header =
+            match Uri.port config.server with
+            | Some port when port <> default_port ->
+                host_for_header ^ ":" ^ string_of_int port
+            | _ -> host_for_header
+          in
+          let default_header name value =
+            if
+              List.exists
+                (fun (candidate, _) -> header_is name candidate)
+                headers
+            then []
+            else [ (name, value) ]
+          in
+          let request_headers =
+            [
+              ("Host", host_header);
+              ("Connection", "Upgrade");
+              ("Content-Length", "0");
+            ]
+            @ default_header "User-Agent" "ocaml-k8s"
+            @ (if uses_forward_http_proxy config then
+                 match config.proxy_url with
+                 | Some proxy ->
+                     Option.fold ~none:[]
+                       ~some:(fun value ->
+                         default_header "Proxy-Authorization" value)
+                       (proxy_authorization proxy)
+                 | None -> []
+               else [])
+            @ headers
+          in
+          let output = Buffer.create 512 in
+          Buffer.add_string output
+            ("GET " ^ request_target config path ^ " HTTP/1.1\r\n");
+          List.iter
+            (fun (name, value) ->
+              Buffer.add_string output (name ^ ": " ^ value ^ "\r\n"))
+            request_headers;
+          Buffer.add_string output "\r\n";
+          with_phase_timeout ?cancel ~phase:"request write"
+            ~timeout:write_timeout flow (fun () ->
+              write flow (Buffer.contents output));
+          let* head, pending =
+            read_response_head ?cancel ~timeout:response_header_timeout flow
+          in
+          let* _protocol, status, reason, response_headers = parse_head head in
+          if status = 101 then
+            if not (connection_has_token "upgrade" response_headers) then
+              Error "HTTP 101 response is missing Connection: Upgrade"
+            else if header "upgrade" response_headers = None then
+              Error "HTTP 101 response is missing the Upgrade header"
+            else
+              let response =
+                { status; reason; headers = response_headers; body = "" }
+              in
+              let connection = Upgrade.create ?cancel flow pending in
+              if cancelled () then (
+                Upgrade.close connection;
+                Error "request cancelled")
+              else (
+                transferred := true;
+                Ok (Upgraded { response; connection }))
+          else
+            let body_buffer = Buffer.create (min 4096 max_body_bytes) in
+            let buffered_bytes = ref 0 in
+            let consume value =
+              buffered_bytes := !buffered_bytes + String.length value;
+              if !buffered_bytes > max_body_bytes then
+                raise (Body_too_large max_body_bytes);
+              Buffer.add_string body_buffer value
+            in
+            let input = { flow; pending; offset = 0 } in
+            let no_body =
+              (status >= 100 && status < 200) || status = 204 || status = 304
+            in
+            let* () =
+              if no_body then Ok ()
+              else if transfer_is_chunked response_headers then
+                read_chunked input consume
+              else
+                match header "content-length" response_headers with
+                | Some value -> (
+                    match int_of_string_opt value with
+                    | Some length when length >= 0 ->
+                        if length > max_body_bytes then
+                          Error
+                            (Printf.sprintf "HTTP body exceeds %d bytes"
+                               max_body_bytes)
+                        else read_exact input length consume
+                    | _ -> Error ("invalid Content-Length: " ^ value))
+                | None -> read_to_eof input consume
+            in
+            Ok
+              (Response
+                 {
+                   status;
+                   reason;
+                   headers = response_headers;
+                   body = Buffer.contents body_buffer;
+                 })
+        with
+        | Unix.Unix_error (code, name, argument) ->
+            if cancelled () then Error "request cancelled"
+            else
+              Error
+                (Printf.sprintf "%s(%s): %s" name argument
+                   (Unix.error_message code))
+        | Tls_unix.Tls_alert _ -> Error "TLS alert received from API server"
+        | Tls_unix.Tls_failure failure ->
+            Error
+              (Format.asprintf "TLS failure: %a" Tls.Engine.pp_failure failure)
+        | Tls_unix.Closed_by_peer | End_of_file ->
+            Error "connection closed by peer"
+        | Body_too_large limit ->
+            Error (Printf.sprintf "HTTP body exceeds %d bytes" limit)
+        | Request_phase_timeout (phase, timeout) ->
+            Error (Printf.sprintf "%s timed out after %.3fs" phase timeout)
+        | exn -> Error (Printexc.to_string exn))

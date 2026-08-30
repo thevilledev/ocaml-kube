@@ -3,7 +3,7 @@
 `ocaml-k8s` is a Kubernetes API client and controller runtime built directly on
 OCaml 5, system threads, Unix sockets, and explicit cancellation. Kubernetes
 machinery is implemented in this repository; established OCaml libraries are
-used only for cryptography, TLS, URI handling, and JSON.
+used only for cryptography, TLS, URI handling, JSON, and standard compression.
 
 The current pre-release implementation includes:
 
@@ -15,6 +15,10 @@ The current pre-release implementation includes:
   transfer decoding, monotonic connection, request-write, and response-header
   deadlines, cancellation, injection checks, and bounded buffered responses,
   plus a cancellation-aware token-bucket client rate limiter;
+- native WebSocket framing and Kubernetes exec/attach stream protocols with
+  terminal resize, stdin half-close, structured exit status, and cancellation;
+- Kubernetes WebSocket/SPDY port forwarding with bounded multiplexed streams
+  and a supervised multi-port local TCP forwarder;
 - typed GET, LIST, CREATE, UPDATE, DELETE, collection deletion, JSON Patch,
   Merge Patch, and Server-Side Apply requests;
 - Kubernetes Status error classifiers and server-directed retry delays from
@@ -51,9 +55,9 @@ The current pre-release implementation includes:
   shutdown; and
 - `events.k8s.io/v1` recording with canonical object-reference and UID-checked
   owner-reference helpers; and
-- a versioned Kubernetes v1.36 API package generated from the official OpenAPI
-  specification, covering all 60 stable LIST/WATCH resources and their 473
-  dependent types; and
+- independently selectable Kubernetes v1.34, v1.35, v1.36, and v1.37 API
+  packages generated from checksum-pinned official OpenAPI specifications,
+  plus matrix regeneration and offline drift automation; and
 - a `kube.crd` library for typed structural schemas, validated CRD manifests,
   deterministic YAML, typed custom-resource codecs, and status patch helpers;
   and
@@ -158,10 +162,11 @@ tree, schema mapping, input constraints, and end-to-end kind proof.
 
 ## Generated Kubernetes API
 
-The `kube.api.v1_36` sublibrary provides generated records, constructors, JSON
-codecs, and `Core.Resource` descriptors for every stable LIST/WATCH resource in
-the pinned upstream schema. `Kube_api_v1_36.all_resources` is the complete
-machine-readable descriptor registry. For example:
+The separately versioned `kube.api.v1_34`, `kube.api.v1_35`,
+`kube.api.v1_36`, and `kube.api.v1_37` sublibraries provide generated records,
+constructors, JSON codecs, and `Core.Resource` descriptors for every stable
+LIST/WATCH resource in each pinned upstream schema. Choose the schema line that
+matches the API surface your program is compiled against. For example:
 
 ```ocaml
 module K8s = Kube_api_v1_36
@@ -179,7 +184,8 @@ module Config_maps = Kube.Client.For (K8s.Core_v1.ConfigMap)
 The checked-in dependency-closure schema makes normal builds and drift checks
 self-contained. Maintainer regeneration verifies the complete upstream document
 against its pinned checksum, derives the resource selection from its operations
-and response schemas, and only then replaces generated files. See
+and response schemas, creates new versioned package directories, and only then
+replaces generated files. See
 [generated API versioning and regeneration](docs/api-codegen.md).
 
 ## Discovery and dynamic APIs
@@ -247,9 +253,33 @@ let follow cancel client name =
   let options =
     { Kube.Client.default_log_options with container = Some "operator"; follow = true }
   in
-  Pods.stream_logs ~cancel ~options client ~namespace:"default" name
+Pods.stream_logs ~cancel ~options client ~namespace:"default" name
     ~on_chunk:(output_string stdout)
 ```
+
+## Remote commands and port forwarding
+
+`Remote_command` implements the versioned Kubernetes exec/attach channel
+protocols, including terminal resize, stdin half-close, and structured exit
+statuses. `Port_forward` multiplexes paired error/data streams, while
+`Port_forward.Forwarder` binds local TCP listeners:
+
+```ocaml
+let exec =
+  Kube.Remote_command.exec ~stdin:true client ~pod:"worker"
+    ~command:[ "sh"; "-c"; "make migrate" ] ()
+
+let mapping =
+  Kube.Port_forward.Forwarder.{ local_port = 8080; remote_port = 8080 }
+
+let forwarding =
+  Kube.Port_forward.Forwarder.start client ~pod:"web" ~ports:[ mapping ] ()
+```
+
+Both APIs use the same kubeconfig, authentication, TLS, proxy, impersonation,
+rate-limit, cancellation, and shutdown behavior as ordinary client requests.
+See [streaming subresources](docs/streaming.md) for the complete session APIs
+and operational limits.
 
 Namespaced collection deletion deliberately defaults to the configured or
 `default` namespace. Deleting through the cross-namespace collection endpoint
@@ -565,9 +595,11 @@ Event describes.
 ## Layout
 
 - `Core` defines resource identity, metadata, paths, scope, and resource versions.
-- `Config`, `Http`, `Client`, and `Cached_client` implement authentication,
-  live API calls, typed Scale and log streaming, and explicit cache-backed
-  reads.
+- `Config`, `Http`, `Websocket`, `Client`, and `Cached_client` implement
+  authentication, live API calls, typed Scale and log streaming, upgraded
+  connections, and explicit cache-backed reads.
+- `Remote_command` implements exec/attach; `Port_forward` provides the
+  multiplexed Pod tunnel and local TCP forwarder.
 - `Discovery` and `Dynamic` cover APIs not known at compile time.
 - `Store`, `Reflector`, `Work_queue`, `Manager`, and `Controller` implement the
   controller machinery.
@@ -575,8 +607,8 @@ Event describes.
   production operations surface; `Events` records Kubernetes Events.
 - `Admission`, `Conversion`, and `Webhook` provide typed admission, checked CRD
   conversion, and supervised HTTPS serving.
-- `Kube_api_v1_36` is the generated, separately versioned stable built-in API
-  surface.
+- `Kube_api_v1_34` through `Kube_api_v1_37` are generated, independently
+  selectable stable built-in API surfaces.
 - `Kube_crd` defines structural schemas, CRD manifests, deterministic YAML,
   and the typed custom-resource functor.
 - `Kube_ppx` implements `[@@deriving kube]` for codecs and schemas.

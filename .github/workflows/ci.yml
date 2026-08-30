@@ -21,7 +21,7 @@ jobs:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
           dune-cache: true
       - run: opam install . --deps-only --with-test --with-doc
-      - run: opam exec -- dune build @all @install @doc
+      - run: opam exec -- dune build @all @install @doc @codegen-check
       - run: opam exec -- dune runtest
       - run: opam lint kube.opam
 
@@ -34,7 +34,7 @@ jobs:
           ocaml-compiler: "5.5.0"
           dune-cache: true
       - run: opam install . --deps-only --with-test
-      - run: opam exec -- dune build @all
+      - run: opam exec -- dune build @all @codegen-check
       - run: opam exec -- dune runtest
 
   scaffold-acceptance:

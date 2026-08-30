@@ -13,6 +13,9 @@ let () =
   let implementation_path = ref None in
   let interface_path = ref None in
   let schema_output_path = ref None in
+  let kubernetes_version = ref None in
+  let source = ref None in
+  let sha256 = ref None in
   let check = ref false in
   let derive_stable_resources = ref false in
   let set target value = target := Some value in
@@ -37,6 +40,15 @@ let () =
       ( "--derive-stable-resources",
         Arg.Set derive_stable_resources,
         "Derive and replace manifest resources from stable LIST/WATCH paths" );
+      ( "--kubernetes-version",
+        Arg.String (set kubernetes_version),
+        "VERSION Bootstrap a derived manifest with this Kubernetes version" );
+      ( "--source",
+        Arg.String (set source),
+        "URL Bootstrap a derived manifest with this immutable source" );
+      ( "--sha256",
+        Arg.String (set sha256),
+        "HEX Bootstrap a derived manifest with this source checksum" );
     ]
   in
   Arg.parse arguments
@@ -51,34 +63,44 @@ let () =
   let implementation_path = required "--ml" !implementation_path in
   let interface_path = required "--mli" !interface_path in
   bind (Openapi_codegen.load_json schema_path) (fun schema ->
-      bind (Openapi_codegen.load_json manifest_path) (fun manifest ->
-          let manifest =
-            if !derive_stable_resources then
-              Openapi_codegen.derive_stable_manifest ~schema ~manifest
-            else Ok manifest
-          in
-          bind manifest (fun manifest ->
-              bind (Openapi_codegen.generate ~schema ~manifest) (fun output ->
-                  let act =
-                    if !check then Openapi_codegen.check_file
-                    else Openapi_codegen.write_file
-                  in
-                  let write_manifest next =
-                    if !derive_stable_resources then
-                      let contents =
-                        Yojson.Safe.pretty_to_string manifest ^ "\n"
-                      in
-                      bind (act manifest_path contents) (fun () -> next ())
-                    else next ()
-                  in
-                  write_manifest (fun () ->
-                      bind (act implementation_path output.implementation)
-                        (fun () ->
-                          bind (act interface_path output.interface) (fun () ->
-                              (match !schema_output_path with
-                              | None -> ()
-                              | Some path ->
-                                  bind (act path output.pruned_schema) Fun.id);
-                              Printf.printf
-                                "generated %d OpenAPI definitions\n%!"
-                                output.definition_count)))))))
+      let metadata = (!kubernetes_version, !source, !sha256) in
+      let manifest =
+        match metadata with
+        | Some kubernetes_version, Some source, Some sha256 ->
+            if not !derive_stable_resources then
+              Error "source metadata options require --derive-stable-resources"
+            else
+              Openapi_codegen.derive_stable_manifest_with_metadata ~schema
+                ~kubernetes_version ~source ~sha256
+        | None, None, None ->
+            bind (Openapi_codegen.load_json manifest_path) (fun manifest ->
+                if !derive_stable_resources then
+                  Openapi_codegen.derive_stable_manifest ~schema ~manifest
+                else Ok manifest)
+        | _ ->
+            Error
+              "--kubernetes-version, --source, and --sha256 must be supplied \
+               together"
+      in
+      bind manifest (fun manifest ->
+          bind (Openapi_codegen.generate ~schema ~manifest) (fun output ->
+              let act =
+                if !check then Openapi_codegen.check_file
+                else Openapi_codegen.write_file
+              in
+              let write_manifest next =
+                if !derive_stable_resources then
+                  let contents = Yojson.Safe.pretty_to_string manifest ^ "\n" in
+                  bind (act manifest_path contents) (fun () -> next ())
+                else next ()
+              in
+              write_manifest (fun () ->
+                  bind (act implementation_path output.implementation)
+                    (fun () ->
+                      bind (act interface_path output.interface) (fun () ->
+                          (match !schema_output_path with
+                          | None -> ()
+                          | Some path ->
+                              bind (act path output.pruned_schema) Fun.id);
+                          Printf.printf "generated %d OpenAPI definitions\n%!"
+                            output.definition_count))))))

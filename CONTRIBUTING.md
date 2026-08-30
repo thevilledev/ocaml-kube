@@ -9,7 +9,7 @@ Use OCaml 5.1 or newer and install the package's development dependencies:
 
 ```sh
 opam install . --deps-only --with-test --with-doc
-opam exec -- dune build @all @install @doc
+opam exec -- dune build @all @install @doc @codegen-check
 opam exec -- dune runtest
 ```
 
@@ -24,9 +24,9 @@ Create a kind cluster and write its kubeconfig to `kubeconfig.kind`, then run:
 test/integration_kind.sh
 ```
 
-Changes to watches, authentication, resource versions, patching, finalizers, or
-the controller queue should include a focused regression test as well as the
-integration run.
+Changes to watches, authentication, resource versions, patching, upgraded
+connections, finalizers, or the controller queue should include a focused
+regression test as well as the integration run.
 
 Use the public `kube.test` transport for request-pipeline and reconciler unit
 tests that do not require API-server semantics. Keep the loopback HTTP harness

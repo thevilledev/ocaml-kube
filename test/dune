@@ -14,6 +14,17 @@
  (libraries kube kube.api.v1_36 alcotest yojson))
 
 (test
+ (name test_api_matrix)
+ (modules test_api_matrix)
+ (libraries
+  kube
+  kube.api.v1_34
+  kube.api.v1_35
+  kube.api.v1_36
+  kube.api.v1_37
+  alcotest))
+
+(test
  (name test_admission)
  (modules test_admission)
  (libraries kube alcotest base64 yojson)
@@ -28,3 +39,8 @@
  (name test_multi_namespace)
  (modules test_multi_namespace)
  (libraries kube kube.test alcotest yojson uri))
+
+(test
+ (name test_streaming)
+ (modules test_streaming)
+ (libraries kube fake_api_server alcotest yojson))

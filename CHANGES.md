@@ -8,6 +8,9 @@ Versioning once the first release is tagged.
 ### Added
 
 - Native OCaml 5 Kubernetes HTTP and TLS transport.
+- Authenticated WebSocket upgrades; versioned exec and attach channels with
+  resize, half-close, and structured exit status; and multiplexed Pod
+  port-forward streams with a local TCP forwarder.
 - Kubeconfig, in-cluster, token-file, basic, client-certificate, and exec-plugin
   authentication.
 - Typed and dynamic CRUD, patch, Server-Side Apply, pagination, discovery,
@@ -23,6 +26,8 @@ Versioning once the first release is tagged.
   synchronization, initial queue seeding, worker startup, and shutdown.
 - A typed custom-resource operator and repeatable kind integration test.
 - Compatibility lanes for active Kubernetes minor releases.
+- Checksum-pinned generated built-in API packages for Kubernetes 1.34 through
+  1.37, with manifest-driven regeneration and offline drift checks.
 - Kubeconfig merging and client-go-compatible exec-plugin validation, relative
   command resolution, and token-file precedence.
 - Thread-safe persistent HTTP/1.1 connection pooling with stale-connection

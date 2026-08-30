@@ -30,6 +30,11 @@
  (modules multi_namespace_check)
  (libraries kube kube.crd greeting))
 
+(executable
+ (name streaming_check)
+ (modules streaming_check)
+ (libraries kube))
+
 (rule
  (target greeting-crd.generated.yaml)
  (action

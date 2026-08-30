@@ -9,21 +9,40 @@ module Transport = struct
     max_body_bytes : int option;
   }
 
+  type websocket_request = {
+    cancel : Cancel.t option;
+    target : string;
+    headers : (string * string) list;
+    protocols : string list;
+    max_message_bytes : int option;
+    max_error_body_bytes : int option;
+  }
+
   type t = {
     execute_fn : request -> (Http.response, string) result;
+    websocket_fn :
+      (websocket_request -> (Websocket.t, Websocket.connect_error) result)
+      option;
     close_fn : unit -> unit;
     closed_error : string;
     closed : bool Atomic.t;
   }
 
-  let make_with_closed_error ?(close = fun () -> ()) ~closed_error execute_fn =
-    { execute_fn; close_fn = close; closed_error; closed = Atomic.make false }
+  let make_with_closed_error ?(close = fun () -> ()) ?websocket ~closed_error
+      execute_fn =
+    {
+      execute_fn;
+      websocket_fn = websocket;
+      close_fn = close;
+      closed_error;
+      closed = Atomic.make false;
+    }
 
-  let make ?close execute_fn =
-    make_with_closed_error ?close ~closed_error:"client transport is closed"
-      execute_fn
+  let make ?close ?websocket execute_fn =
+    make_with_closed_error ?close ?websocket
+      ~closed_error:"client transport is closed" execute_fn
 
-  let execute transport request =
+  let execute transport (request : request) =
     if Atomic.get transport.closed then Error transport.closed_error
     else if Option.fold ~none:false ~some:Cancel.is_cancelled request.cancel
     then Error "request cancelled"
@@ -41,6 +60,25 @@ module Transport = struct
         | Ok response when String.length response.Http.body > limit ->
             Error (Printf.sprintf "HTTP body exceeds %d bytes" limit)
         | result -> result
+
+  let websocket transport (request : websocket_request) =
+    if Atomic.get transport.closed then
+      Error (Websocket.Transport transport.closed_error)
+    else if Option.fold ~none:false ~some:Cancel.is_cancelled request.cancel
+    then Error (Websocket.Transport "request cancelled")
+    else
+      match transport.websocket_fn with
+      | None ->
+          Error
+            (Websocket.Transport
+               "client transport does not support WebSocket upgrades")
+      | Some connect -> (
+          try connect request
+          with exn ->
+            Error
+              (Websocket.Transport
+                 ("client transport raised during WebSocket upgrade: "
+                ^ Printexc.to_string exn)))
 
   let close transport =
     if Atomic.compare_and_set transport.closed false true then
@@ -271,10 +309,41 @@ let create ?max_idle_connections ?connect_timeout ?write_timeout
     Http.create ?max_idle_connections ?connect_timeout ?write_timeout
       ?response_header_timeout config
   in
+  let websocket_lock = Mutex.create () in
+  let websocket_closed = ref false in
+  let websockets = ref [] in
+  let close_native_transport () =
+    Mutex.lock websocket_lock;
+    websocket_closed := true;
+    let active = !websockets in
+    websockets := [];
+    Mutex.unlock websocket_lock;
+    List.iter Websocket.close active;
+    Http.close http
+  in
+  let open_websocket request =
+    match
+      Websocket.connect ?cancel:request.Transport.cancel
+        ~headers:request.headers ~protocols:request.protocols
+        ?max_message_bytes:request.max_message_bytes
+        ?max_error_body_bytes:request.max_error_body_bytes config request.target
+    with
+    | Error _ as error -> error
+    | Ok socket ->
+        Mutex.lock websocket_lock;
+        websockets :=
+          List.filter (fun value -> not (Websocket.is_closed value)) !websockets;
+        let closed = !websocket_closed in
+        if not closed then websockets := socket :: !websockets;
+        Mutex.unlock websocket_lock;
+        if closed then (
+          Websocket.close socket;
+          Error (Websocket.Transport "HTTP transport is closed"))
+        else Ok socket
+  in
   let transport =
     Transport.make_with_closed_error ~closed_error:"HTTP transport is closed"
-      ~close:(fun () -> Http.close http)
-      (fun request ->
+      ~close:close_native_transport ~websocket:open_websocket (fun request ->
         Http.request ?cancel:request.cancel ~headers:request.headers
           ?body:request.body ?on_chunk:request.on_chunk
           ?max_body_bytes:request.max_body_bytes http request.meth
@@ -484,6 +553,60 @@ let raw_unlogged ?cancel ?(headers = []) ?body ?on_chunk ?max_body_bytes client
   | response when response.status >= 200 && response.status < 300 -> Ok response
   | response -> Error (Api (api_error_of_response response))
 
+let websocket_unlogged ?cancel ?(headers = []) ?(protocols = [])
+    ?max_message_bytes ?max_error_body_bytes client path =
+  let* () =
+    if Rate_limiter.acquire ?cancel client.rate_limiter then Ok ()
+    else Error (Transport "request cancelled while waiting for rate limiter")
+  in
+  let authorization () =
+    match Config.authorization_header client.config with
+    | Ok value -> Ok value
+    | Error message -> Error (Transport message)
+  in
+  let headers =
+    if
+      List.exists
+        (fun (name, _) -> String.lowercase_ascii name = "impersonate-user")
+        headers
+    then headers
+    else Config.impersonation_headers client.config @ headers
+  in
+  let perform authorization =
+    let headers =
+      match authorization with
+      | None -> headers
+      | Some value -> ("Authorization", value) :: headers
+    in
+    Transport.websocket client.transport
+      {
+        cancel;
+        target = path;
+        headers;
+        protocols;
+        max_message_bytes;
+        max_error_body_bytes;
+      }
+  in
+  let* first_authorization = authorization () in
+  let first = perform first_authorization in
+  let* result =
+    match first with
+    | Error (Websocket.Http_response response)
+      when response.status = 401 && Config.invalidate_credential client.config
+      ->
+        let* refreshed_authorization = authorization () in
+        Ok (perform refreshed_authorization)
+    | result -> Ok result
+  in
+  match result with
+  | Ok connection -> Ok connection
+  | Error (Websocket.Http_response response) ->
+      Error (Api (api_error_of_response response))
+  | Error (Websocket.Transport message) -> Error (Transport message)
+  | Error (Websocket.Protocol message) ->
+      Error (Transport ("WebSocket protocol error: " ^ message))
+
 let method_string = function
   | `GET -> "GET"
   | `POST -> "POST"
@@ -536,6 +659,45 @@ let raw ?cancel ?headers ?body ?on_chunk ?max_body_bytes client meth path =
         @ ("duration_seconds", Log.Float (Clock.elapsed started))
           :: outcome_fields)
       "Kubernetes API request completed";
+    result
+
+let websocket ?cancel ?headers ?protocols ?max_message_bytes
+    ?max_error_body_bytes client path =
+  if not (Log.enabled client.logger Log.Debug) then
+    websocket_unlogged ?cancel ?headers ?protocols ?max_message_bytes
+      ?max_error_body_bytes client path
+  else
+    let request_id = Atomic.fetch_and_add client.next_request_id 1 in
+    let started = Clock.now () in
+    let common =
+      [
+        ("request_id", Log.Int request_id);
+        ("method", Log.String "GET");
+        ("path", Log.String (target_path path));
+      ]
+    in
+    Log.debug client.logger ~fields:common
+      "Kubernetes WebSocket upgrade started";
+    let result =
+      websocket_unlogged ?cancel ?headers ?protocols ?max_message_bytes
+        ?max_error_body_bytes client path
+    in
+    let outcome =
+      match result with
+      | Ok _ -> "ok"
+      | Error (Api _) -> "api_error"
+      | Error (Transport _) -> "transport_error"
+      | Error (Decode _) -> "decode_error"
+      | Error (Invalid_request _) -> "invalid_request"
+    in
+    Log.debug client.logger
+      ~fields:
+        (common
+        @ [
+            ("duration_seconds", Log.Float (Clock.elapsed started));
+            ("result", Log.String outcome);
+          ])
+      "Kubernetes WebSocket upgrade completed";
     result
 
 let with_query path query =

@@ -18,10 +18,23 @@ module Transport : sig
       those bytes in the returned response body. Error bodies must always remain
       bounded by [max_body_bytes]. *)
 
+  type websocket_request = {
+    cancel : Cancel.t option;
+    target : string;
+    headers : (string * string) list;
+    protocols : string list;
+    max_message_bytes : int option;
+    max_error_body_bytes : int option;
+  }
+
   type t
 
   val make :
-    ?close:(unit -> unit) -> (request -> (Http.response, string) result) -> t
+    ?close:(unit -> unit) ->
+    ?websocket:
+      (websocket_request -> (Websocket.t, Websocket.connect_error) result) ->
+    (request -> (Http.response, string) result) ->
+    t
   (** Build a custom transport. The callback may be invoked concurrently and
       must be thread-safe, honor cancellation while it is running, enforce
       bounds before invoking streaming callbacks, and preserve the streaming
@@ -233,6 +246,20 @@ val raw :
   (Http.response, error) result
 (** Execute an authenticated request. Refreshable exec credentials are
     invalidated and retried once after a 401 response. *)
+
+val websocket :
+  ?cancel:Cancel.t ->
+  ?headers:(string * string) list ->
+  ?protocols:string list ->
+  ?max_message_bytes:int ->
+  ?max_error_body_bytes:int ->
+  t ->
+  string ->
+  (Websocket.t, error) result
+(** Open an authenticated WebSocket subresource connection through the owned
+    transport. Rate limiting, impersonation, credential refresh after 401,
+    Kubernetes Status decoding, and request logging match ordinary requests.
+    Injected transports must opt into upgrades through [Transport.make]. *)
 
 module For (Resource : Core.Resource) : sig
   (** Typed operations for one resource descriptor. Object operations default to

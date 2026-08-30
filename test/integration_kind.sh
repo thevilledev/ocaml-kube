@@ -13,6 +13,7 @@ operator_pid_b=
 scaffold_pid=
 scaffold_temp=
 scaffold_log=
+streaming_pod=ocaml-k8s-streaming-check
 
 stop_operator() {
   pid=$1
@@ -81,6 +82,8 @@ cleanup() {
   kubectl --kubeconfig "$kubeconfig" delete namespace \
     "$multi_namespace_a" "$multi_namespace_b" --ignore-not-found \
     --wait=false >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$kubeconfig" delete pod "$streaming_pod" \
+    --namespace default --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if [ -n "$scaffold_temp" ]; then
     case "$scaffold_temp" in
       */ocaml-k8s-scaffold.*) rm -rf -- "$scaffold_temp" ;;
@@ -166,6 +169,14 @@ kubectl --kubeconfig "$kubeconfig" wait --for=condition=Established \
   --kubeconfig "$kubeconfig"
 "$repository/_build/default/examples/client_features_check.exe" \
   --kubeconfig "$kubeconfig"
+kubectl --kubeconfig "$kubeconfig" apply \
+  -f test/fixtures/streaming-pod.yaml
+kubectl --kubeconfig "$kubeconfig" wait --for=condition=Ready \
+  pod/"$streaming_pod" --namespace default --timeout=120s
+"$repository/_build/default/examples/streaming_check.exe" \
+  --kubeconfig "$kubeconfig" --namespace default --pod "$streaming_pod"
+kubectl --kubeconfig "$kubeconfig" delete pod "$streaming_pod" \
+  --namespace default --wait=true --timeout=60s
 kubectl --kubeconfig "$kubeconfig" create namespace "$multi_namespace_a" \
   --dry-run=client -o yaml | kubectl --kubeconfig "$kubeconfig" apply -f -
 kubectl --kubeconfig "$kubeconfig" create namespace "$multi_namespace_b" \
@@ -289,4 +300,4 @@ grep -q "acquired leadership as $second_holder" "$operator_log_a" "$operator_log
 kubectl --kubeconfig "$kubeconfig" delete lease kube-greeting-operator \
   --namespace default --ignore-not-found
 
-echo "kind integration passed: scaffold generation/build/run, discovery, collection delete, subresources, Scale, logs, multi-namespace cache, leader contention, failover, watch update, status, events, finalizer, shutdown"
+echo "kind integration passed: scaffold generation/build/run, discovery, collection delete, subresources, Scale, logs, exec, attach, port-forward, multi-namespace cache, leader contention, failover, watch update, status, events, finalizer, shutdown"

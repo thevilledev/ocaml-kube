@@ -14,6 +14,27 @@ type response = {
 
 type t
 
+module Upgrade : sig
+  type t
+
+  val read : t -> bytes -> int -> int -> (int, string) result
+  (** Read bytes from the upgraded connection. Bytes received in the same packet
+      as the HTTP response headers are returned first. At most one reader may be
+      active; concurrent writes are supported. [Ok 0] means EOF. *)
+
+  val write : t -> string -> (unit, string) result
+  (** Write all bytes, serializing concurrent writers. *)
+
+  val is_closed : t -> bool
+
+  val close : t -> unit
+  (** Shut down and close the connection exactly once. *)
+end
+
+type upgrade_result =
+  | Upgraded of { response : response; connection : Upgrade.t }
+  | Response of response
+
 val create :
   ?max_idle_connections:int ->
   ?connect_timeout:float ->
@@ -63,3 +84,19 @@ val request_once :
   (response, string) result
 (** Execute one request on a connection that is always closed afterwards. The
     timeout defaults and phase semantics are the same as [create]. *)
+
+val upgrade_once :
+  ?cancel:Cancel.t ->
+  ?headers:(string * string) list ->
+  ?max_body_bytes:int ->
+  ?connect_timeout:float ->
+  ?write_timeout:float ->
+  ?response_header_timeout:float ->
+  Config.t ->
+  string ->
+  (upgrade_result, string) result
+(** Open one HTTP/1.1 Upgrade connection. The caller supplies [Upgrade] and any
+    subprotocol headers; the transport owns HTTP framing and [Connection]. A
+    non-101 response is fully consumed into a bounded body and returned as
+    [Response]. A successful [Upgraded] connection owns the socket until
+    explicitly closed or the request cancellation token fires. *)

@@ -1,32 +1,38 @@
 # Generated Kubernetes API
 
-`ocaml-k8s` keeps Kubernetes protocol/runtime releases independent from schema
-releases. The first generated schema library is installed as
-`kube.api.v1_36` and exposed through the OCaml module `Kube_api_v1_36`.
+`ocaml-k8s` keeps protocol/runtime releases independent from schema releases.
+Each Kubernetes minor is installed as its own library and OCaml module, so an
+application opts into schema changes explicitly.
+
+| Kubernetes source | Dune library | OCaml module | Stable resources | Definition closure |
+| --- | --- | --- | ---: | ---: |
+| v1.34.9 | `kube.api.v1_34` | `Kube_api_v1_34` | 58 | 461 |
+| v1.35.6 | `kube.api.v1_35` | `Kube_api_v1_35` | 58 | 462 |
+| v1.36.2 | `kube.api.v1_36` | `Kube_api_v1_36` | 60 | 473 |
+| v1.37.0 | `kube.api.v1_37` | `Kube_api_v1_37` | 64 | 509 |
 
 ## Input and reproducibility
 
-The package is generated from Kubernetes v1.36.2's official Swagger 2.0
-document:
+`codegen/kubernetes-versions.tsv` is the source of truth for supported schema
+packages. Every row pins a Kubernetes minor, exact patch release, and SHA-256
+of the official Swagger 2.0 document at:
 
-- source: <https://raw.githubusercontent.com/kubernetes/kubernetes/v1.36.2/api/openapi-spec/swagger.json>
-- complete upstream SHA-256:
-  `dcede2063da1d7ad62ecb5af8adb6d7fabd0b52385a7fa0048afb491dac90450`
-- derived resource manifest: `codegen/resources-v1.36.2.json`
-- checked-in transitive schema closure: `codegen/openapi/v1.36.2.json`
+```text
+https://raw.githubusercontent.com/kubernetes/kubernetes/VERSION/api/openapi-spec/swagger.json
+```
 
-The manifest contains all 60 stable resources whose upstream paths expose both
-LIST and WATCH operations. Their references produce a closure of 473
-definitions. The generator derives each resource definition, group, version,
-plural, and namespace scope from the operations and the LIST response schema;
-the manifest is a checked-in, reviewable result rather than a hand-maintained
-allowlist. The closure is sufficient to reproduce generated output without
-network access, so ordinary builds do not download Kubernetes sources or
-execute the generator.
+For each row, the repository checks in:
 
-The full upstream document is deliberately not committed. The closure is much
-smaller, and its provenance remains bound to the immutable URL and checksum in
-the manifest and generated headers.
+- `codegen/resources-VERSION.json`, the derived resource manifest;
+- `codegen/openapi/VERSION.json`, the transitive schema closure;
+- `api/MINOR/kube_api_MINOR.ml` and `.mli`, the generated API; and
+- `api/MINOR/dune`, the package declaration and offline drift rule.
+
+The generator derives resource definition, group, version, plural, and scope
+from stable LIST and WATCH operations and their list response schemas. The
+resource set is therefore a reviewable result, not a hand-maintained allowlist.
+The closure reproduces generated output without a network connection. The full
+multi-megabyte upstream documents are deliberately not committed.
 
 ## Generated representation
 
@@ -36,29 +42,28 @@ Every selected resource gets:
 - a constructor using required and optional labelled arguments;
 - JSON decoding with field-local error context;
 - deterministic JSON encoding that omits absent optional fields;
-- a resource descriptor containing its group, version, kind, plural, and scope;
-- an implementation of `Kube.Core.Resource` suitable for the typed client and
-  controller functors.
+- a descriptor containing group, version, kind, plural, and scope; and
+- a `Kube.Core.Resource` implementation for typed client and controller
+  functors.
 
-The package also exposes `all_resources`, a deterministic registry of the 60
-generated descriptors. Tests assert its size, GVR uniqueness, representative
-scope decisions, and the presence of newer API groups.
+Each package exposes `all_resources`, a deterministic descriptor registry.
+Matrix tests compile all supported packages and assert their size, GVR
+uniqueness, scope, and representative core resources.
 
 Common helpers are grouped under `Meta_v1`, `Int_or_string`, and `Quantity`.
 Kubernetes `int64` values use OCaml `int64`; `IntOrString` is represented as
 `` `Int of int32 | `String of string ``; quantities and timestamps remain opaque
-wire-format strings. Map fields use `(string * 'a) list`, preserving a stable
-encoding order. Schema objects that intentionally preserve arbitrary content,
-such as `FieldsV1`, remain `Yojson.Safe.t` and round-trip unknown fields.
+wire-format strings. Map fields use `(string * 'a) list`, preserving stable
+encoding order. Objects that intentionally preserve arbitrary content, such as
+`FieldsV1`, remain `Yojson.Safe.t` and round-trip unknown fields.
 
-Typed records intentionally discard unknown object fields. Applications that
-must proxy a newer resource without losing fields should use `Kube.Dynamic`,
-which retains the complete original JSON value.
+Typed records intentionally discard unknown object fields. Code that proxies a
+newer resource without losing fields should use `Kube.Dynamic`.
 
-## Using the package
+## Using a package
 
 ```ocaml
-module K8s = Kube_api_v1_36
+module K8s = Kube_api_v1_37
 module Deployments = Kube.Client.For (K8s.Apps_v1.Deployment)
 module Deployment_controller = Kube.Controller.Make (K8s.Apps_v1.Deployment)
 
@@ -70,46 +75,52 @@ let deployment =
     ~metadata ()
 ```
 
-Nested spec constructors are also exposed. Their generated names are globally
-unique because they include the complete upstream definition path. This is
-verbose at the lowest layer but prevents collisions between identically named
-types from different API groups and versions.
+Nested spec constructor names include their complete upstream definition path.
+That is verbose at the lowest layer but prevents collisions between identical
+type names from different API groups and versions.
 
-## Regeneration
+## Regeneration and maintenance
 
-Run:
+Regenerate every pinned line:
 
 ```sh
-codegen/update-kubernetes-api.sh
+codegen/update-kubernetes-api.sh all
 ```
 
-The script downloads the immutable upstream document, verifies its checksum,
-derives the complete stable LIST/WATCH resource manifest, regenerates the schema
-closure and both OCaml files, and runs the drift check. It refuses to generate
-when the downloaded bytes do not match the pinned checksum.
+Regenerate one minor after changing its row:
 
-For an offline verification of checked-in files, run:
+```sh
+codegen/update-kubernetes-api.sh 1.37
+```
+
+The script downloads immutable upstream documents, verifies every checksum,
+bootstraps manifests directly from source metadata, creates package directories
+and Dune rules, regenerates closure and OCaml files, and finishes with the full
+offline drift check. It has no JSON-command-line dependency.
+
+To verify upstream inputs and generated outputs without changing files:
+
+```sh
+codegen/update-kubernetes-api.sh --check all
+```
+
+For a network-free verification of checked-in inputs and generated files:
 
 ```sh
 opam exec -- dune build @codegen-check
 ```
 
-Generator behavior is additionally fixed by the small golden fixture under
-`codegen/fixtures/`. Runtime tests construct and round-trip generated resources,
-exercise required-field failures, verify `IntOrString`, preserve raw JSON
-objects, and validate all 60 resource descriptors. The resource-derivation
-fixture additionally proves stable-version filtering, scope inference,
-deterministic ordering, and manifest metadata preservation.
+The small golden fixture under `codegen/fixtures/` fixes generator behavior.
+Runtime tests cover constructors, required-field failures, `IntOrString`, raw
+JSON preservation, and all versioned registries.
 
 ## Versioning policy
 
-A Kubernetes schema minor receives a new sublibrary rather than rewriting the
-types of an existing one. For example, a future schema line would use a distinct
-public library and OCaml module. Applications can therefore choose when to move
-between generated schemas while continuing to update the protocol/runtime
-library independently.
+A Kubernetes schema minor always receives a new sublibrary rather than
+rewriting another minor's types. Applications can update the runtime and schema
+packages independently.
 
-Patch updates within one Kubernetes minor may regenerate the same sublibrary
-before its first stable release. After a stable `ocaml-k8s` release, any
-source-incompatible schema change requires a new generated sublibrary or a new
-major project release; it must not silently change an already published API.
+Patch updates may regenerate a minor package before its first stable
+`ocaml-k8s` release. Once published, a source-incompatible schema change must
+use a new package line or a new major project release; an existing public module
+must not change silently.

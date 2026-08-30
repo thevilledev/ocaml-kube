@@ -23,6 +23,16 @@ val derive_stable_manifest :
     the operations and their list response schemas. Other manifest metadata is
     retained. *)
 
+val derive_stable_manifest_with_metadata :
+  schema:Yojson.Safe.t ->
+  kubernetes_version:string ->
+  source:string ->
+  sha256:string ->
+  (Yojson.Safe.t, string) result
+(** Derive a new manifest directly from pinned source metadata. This is the
+    bootstrap entry point for adding a Kubernetes schema version without copying
+    an older resource allowlist. *)
+
 val load_json : string -> (Yojson.Safe.t, string) result
 val write_file : string -> string -> (unit, string) result
 val check_file : string -> string -> (unit, string) result

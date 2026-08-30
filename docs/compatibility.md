@@ -34,8 +34,8 @@ The core client discovers API groups and resources at runtime and represents
 unknown custom resources dynamically. Stable Kubernetes HTTP conventions,
 `metav1` list/watch envelopes, JSON Patch, Merge Patch, and Server-Side Apply do
 not require the client and server to share a minor version. Generated built-in
-resource modules will be versioned separately from the protocol/runtime packages
-so schema updates do not force controller-runtime forks.
+resource modules are versioned separately as `kube.api.v1_34` through
+`kube.api.v1_37`, so schema updates do not force controller-runtime forks.
 
 The reflector follows the upstream-required recovery sequence: on `410 Gone`, it
 discards its cache, performs a fresh paginated LIST, and resumes from the returned

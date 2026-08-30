@@ -18,23 +18,3 @@
   fixtures/expected.ml
   fixtures/expected.mli
   fixtures/pruned.json))
-
-(rule
- (alias codegen-check)
- (deps
-  resources-v1.36.2.json
-  openapi/v1.36.2.json
-  ../api/v1_36/kube_api_v1_36.ml
-  ../api/v1_36/kube_api_v1_36.mli)
- (action
-  (run
-   %{exe:kube_codegen.exe}
-   --schema
-   openapi/v1.36.2.json
-   --manifest
-   resources-v1.36.2.json
-   --ml
-   ../api/v1_36/kube_api_v1_36.ml
-   --mli
-   ../api/v1_36/kube_api_v1_36.mli
-   --check)))

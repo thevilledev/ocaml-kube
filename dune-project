@@ -17,6 +17,7 @@
   (alcotest :with-test)
   base64
   ca-certs
+  conf-zlib
   domain-name
   ipaddr
   mirage-crypto-rng

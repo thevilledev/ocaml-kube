@@ -121,6 +121,21 @@ let test_stable_resource_derivation () =
   Alcotest.(check string)
     "manifest metadata retained" "fixture-sha256"
     (derived |> member "sha256" |> to_string);
+  let bootstrapped =
+    match
+      Openapi_codegen.derive_stable_manifest_with_metadata ~schema
+        ~kubernetes_version:"v9.9.9" ~source:"https://example.test/swagger.json"
+        ~sha256:(String.make 64 'a')
+    with
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  Alcotest.(check string)
+    "bootstrapped version" "v9.9.9"
+    (bootstrapped |> member "kubernetesVersion" |> to_string);
+  Alcotest.(check (list string))
+    "bootstrapped resource derivation" resources
+    (bootstrapped |> member "resources" |> to_list |> List.map resource);
   match Openapi_codegen.derive_stable_manifest ~schema ~manifest:derived with
   | Error message -> Alcotest.fail message
   | Ok repeated ->

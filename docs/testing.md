@@ -86,11 +86,12 @@ Use each layer for what it can prove:
 - `kube.test` for request construction, authentication refresh, decoding,
   application reconciliation, error policy, and cancellation;
 - the loopback harness in this repository for HTTP framing, connection reuse,
-  truncation, and socket behavior; and
+  truncation, WebSocket channels, SPDY multiplexing, and socket behavior; and
 - kind integration tests for Kubernetes semantics and compatibility across
   supported server minors.
 
-The kind proof also runs a controller over two explicit namespace routes. It
+The kind proof also verifies exec, attach, and Pod port-forward traffic, then
+runs a controller over two explicit namespace routes. It
 waits for both initial snapshots, observes an update in the first namespace and
 a deletion in the second, and then verifies joined shutdown. Deterministic tests
 separately force a 410 in only one namespace and prove that its scoped relist

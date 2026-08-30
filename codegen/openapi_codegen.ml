@@ -419,6 +419,31 @@ let derive_stable_manifest ~schema ~manifest:manifest_json =
           ("resources", `List (List.map resource_to_json resources));
         ])
 
+let derive_stable_manifest_with_metadata ~schema ~kubernetes_version ~source
+    ~sha256 =
+  protect (fun () ->
+      if String.trim kubernetes_version = "" then
+        fail "kubernetes version must not be empty";
+      if String.trim source = "" then fail "source URL must not be empty";
+      if String.length sha256 <> 64 then
+        fail "source SHA-256 must contain 64 hexadecimal characters";
+      if
+        not
+          (String.for_all
+             (function
+               | '0' .. '9' | 'a' .. 'f' -> true
+               | _ -> false)
+             sha256)
+      then fail "source SHA-256 must be lowercase hexadecimal";
+      let resources = derive_stable_resources schema in
+      `Assoc
+        [
+          ("kubernetesVersion", `String kubernetes_version);
+          ("source", `String source);
+          ("sha256", `String sha256);
+          ("resources", `List (List.map resource_to_json resources));
+        ])
+
 let rec references accumulator = function
   | `Assoc fields ->
       List.fold_left

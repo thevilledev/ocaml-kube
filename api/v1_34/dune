@@ -1,0 +1,24 @@
+(library
+ (name kube_api_v1_34)
+ (public_name kube.api.v1_34)
+ (libraries kube yojson))
+
+(rule
+ (alias codegen-check)
+ (deps
+  ../../codegen/resources-v1.34.9.json
+  ../../codegen/openapi/v1.34.9.json
+  kube_api_v1_34.ml
+  kube_api_v1_34.mli)
+ (action
+  (run
+   %{exe:../../codegen/kube_codegen.exe}
+   --schema
+   ../../codegen/openapi/v1.34.9.json
+   --manifest
+   ../../codegen/resources-v1.34.9.json
+   --ml
+   kube_api_v1_34.ml
+   --mli
+   kube_api_v1_34.mli
+   --check)))
