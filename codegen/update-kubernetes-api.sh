@@ -22,7 +22,7 @@ if [ "$#" -eq 1 ]; then
   selection=$1
 fi
 
-temporary=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-k8s-openapi.XXXXXX")
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-kube-openapi.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 matched=false
 

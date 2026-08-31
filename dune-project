@@ -1,9 +1,9 @@
 (lang dune 3.15)
 (name kube)
 (generate_opam_files true)
-(source (github thevilledev/ocaml-k8s))
+(source (github thevilledev/ocaml-kube))
 (license Apache-2.0)
-(authors "Ville Vesilehto" "ocaml-k8s contributors")
+(authors "Ville Vesilehto" "ocaml-kube contributors")
 (maintainers "Ville Vesilehto <ville@vesilehto.fi>")
 
 (package

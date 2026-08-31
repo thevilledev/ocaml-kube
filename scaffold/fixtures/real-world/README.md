@@ -1,7 +1,7 @@
 # Real-world scaffold acceptance corpus
 
 These CRDs are unmodified, pinned upstream release artifacts used to ensure
-that `ocaml-k8s scaffold` accepts controller-generated YAML, preserves the
+that `ocaml-kube scaffold` accepts controller-generated YAML, preserves the
 source CRD, produces deterministic types, and emits an independently buildable
 operator project. They are test inputs, not endorsed deployment manifests.
 

@@ -1,6 +1,6 @@
 # Streaming subresources
 
-`ocaml-k8s` implements Kubernetes upgraded connections in the core client, so
+`ocaml-kube` implements Kubernetes upgraded connections in the core client, so
 exec, attach, and port forwarding inherit ordinary authentication, TLS,
 kubeconfig, proxy, impersonation, rate limiting, and cancellation behavior.
 Client shutdown closes every active upgraded connection.

@@ -27,7 +27,7 @@ include C.Resource.Make (struct
   module Spec = Spec
   module Status = Status
 
-  let group = "demo.ocaml-k8s.dev"
+  let group = "demo.ocaml-kube.dev"
   let version = "v1alpha1"
   let kind = "Greeting"
   let plural = "greetings"

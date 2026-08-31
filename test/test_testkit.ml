@@ -3,7 +3,7 @@ module T = Kube_test.Transport
 
 let widget_api =
   {
-    K.Core.group = "testing.ocaml-k8s.dev";
+    K.Core.group = "testing.ocaml-kube.dev";
     version = "v1";
     kind = "Widget";
     plural = "widgets";
@@ -34,7 +34,7 @@ let require_complete transport =
 let widget_json ?(resource_version = "1") name =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "Widget");
       ( "metadata",
         `Assoc
@@ -48,7 +48,7 @@ let widget_json ?(resource_version = "1") name =
 let list_json items =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "WidgetList");
       ("metadata", `Assoc [ ("resourceVersion", `String "1") ]);
       ("items", `List items);
@@ -67,7 +67,7 @@ let test_authenticated_typed_request () =
   | [ request ] ->
       Alcotest.(check string)
         "request target"
-        "/apis/testing.ocaml-k8s.dev/v1/namespaces/default/widgets/alpha"
+        "/apis/testing.ocaml-kube.dev/v1/namespaces/default/widgets/alpha"
         request.target;
       Alcotest.(check (option string))
         "authorization header" (Some "Bearer test-secret")

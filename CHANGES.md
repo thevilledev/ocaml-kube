@@ -122,11 +122,11 @@ Versioning once the first release is tagged.
   LIST/WATCH resource version per namespace, aggregate readiness, namespace-local
   compaction relists, atomic scoped store replacement, and matching primary,
   secondary, and owner-watch plumbing.
-- An installed `ocaml-k8s scaffold` CLI that imports a selected served version
+- An installed `ocaml-kube scaffold` CLI that imports a selected served version
   from a v1 CRD and atomically generates a standalone typed operator project,
   controller/finalizer skeleton, package metadata, RBAC, deployment, sample, and
   container artifacts without overwriting an existing path.
-- An `ocaml-k8s init` type-first workflow whose starter OCaml models derive JSON
+- An `ocaml-kube init` type-first workflow whose starter OCaml models derive JSON
   codecs and structural schemas, generate the checked-in CRD manifest, expose a
   drift-check alias, and compile as an independent operator project.
 - Schema-to-OCaml mapping for records, optional fields, primitive formats,

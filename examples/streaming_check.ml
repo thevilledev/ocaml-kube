@@ -160,7 +160,7 @@ let () =
   let kubeconfig = ref None in
   let context = ref None in
   let namespace = ref "default" in
-  let pod = ref "ocaml-k8s-streaming-check" in
+  let pod = ref "ocaml-kube-streaming-check" in
   let set option value = option := Some value in
   Arg.parse
     [

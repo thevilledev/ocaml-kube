@@ -144,7 +144,7 @@ module Make (Resource : Core.Resource) = struct
   let instrumentation registry controller =
     let labels result = [ ("controller", controller); ("result", result) ] in
     let counter result =
-      Metrics.Counter.create ~registry ~name:"ocaml_k8s_reconciliations_total"
+      Metrics.Counter.create ~registry ~name:"ocaml_kube_reconciliations_total"
         ~help:"Reconciliation attempts by controller and result."
         ~labels:(labels result) ()
     in
@@ -152,7 +152,7 @@ module Make (Resource : Core.Resource) = struct
       {
         active_workers =
           Metrics.Gauge.create ~registry
-            ~name:"ocaml_k8s_active_reconcile_workers"
+            ~name:"ocaml_kube_active_reconcile_workers"
             ~help:"Currently executing reconciliation workers."
             ~labels:[ ("controller", controller) ]
             ();
@@ -162,7 +162,7 @@ module Make (Resource : Core.Resource) = struct
         timeout_total = counter "timeout";
         duration =
           Metrics.Histogram.create ~registry
-            ~name:"ocaml_k8s_reconcile_duration_seconds"
+            ~name:"ocaml_kube_reconcile_duration_seconds"
             ~help:"Reconciliation callback duration in seconds."
             ~buckets:
               [ 0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.; 2.5; 5.; 10. ]

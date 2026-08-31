@@ -1,11 +1,11 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "ocaml-k8s generated API dependency closure",
+    "title": "ocaml-kube generated API dependency closure",
     "version": "v1.37.0"
   },
-  "x-ocaml-k8s-upstream-source": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.37.0/api/openapi-spec/swagger.json",
-  "x-ocaml-k8s-upstream-sha256": "465276aedf437726de5a6ed23a41b86d78bb0d347edf251a755ae26a93cdd8a6",
+  "x-ocaml-kube-upstream-source": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.37.0/api/openapi-spec/swagger.json",
+  "x-ocaml-kube-upstream-sha256": "465276aedf437726de5a6ed23a41b86d78bb0d347edf251a755ae26a93cdd8a6",
   "definitions": {
     "io.k8s.api.admissionregistration.v1.ApplyConfiguration": {
       "description": "ApplyConfiguration defines the desired configuration values of an object.",

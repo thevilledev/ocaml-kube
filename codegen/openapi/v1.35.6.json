@@ -1,11 +1,11 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "ocaml-k8s generated API dependency closure",
+    "title": "ocaml-kube generated API dependency closure",
     "version": "v1.35.6"
   },
-  "x-ocaml-k8s-upstream-source": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.35.6/api/openapi-spec/swagger.json",
-  "x-ocaml-k8s-upstream-sha256": "483500149ee52ce5753d75f5639101d985bb4f5e902cc05b1ba7627465d62446",
+  "x-ocaml-kube-upstream-source": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.35.6/api/openapi-spec/swagger.json",
+  "x-ocaml-kube-upstream-sha256": "483500149ee52ce5753d75f5639101d985bb4f5e902cc05b1ba7627465d62446",
   "definitions": {
     "io.k8s.api.admissionregistration.v1.AuditAnnotation": {
       "description": "AuditAnnotation describes how to produce an audit annotation for an API request.",

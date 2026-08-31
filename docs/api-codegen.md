@@ -1,6 +1,6 @@
 # Generated Kubernetes API
 
-`ocaml-k8s` keeps protocol/runtime releases independent from schema releases.
+`ocaml-kube` keeps protocol/runtime releases independent from schema releases.
 Each Kubernetes minor is installed as its own library and OCaml module, so an
 application opts into schema changes explicitly.
 
@@ -121,6 +121,6 @@ rewriting another minor's types. Applications can update the runtime and schema
 packages independently.
 
 Patch updates may regenerate a minor package before its first stable
-`ocaml-k8s` release. Once published, a source-incompatible schema change must
+`ocaml-kube` release. Once published, a source-incompatible schema change must
 use a new package line or a new major project release; an existing public module
 must not change silently.

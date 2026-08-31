@@ -51,7 +51,7 @@ module Greeting = C.Resource.Make (struct
   module Spec = Spec
   module Status = Status
 
-  let group = "demo.ocaml-k8s.dev"
+  let group = "demo.ocaml-kube.dev"
   let version = "v1alpha1"
   let kind = "Greeting"
   let plural = "greetings"
@@ -120,7 +120,7 @@ let test_manifest () =
   in
   let metadata = member "metadata" json in
   Alcotest.(check string)
-    "CRD name" "greetings.demo.ocaml-k8s.dev"
+    "CRD name" "greetings.demo.ocaml-kube.dev"
     (match member "name" metadata with
     | `String value -> value
     | _ -> Alcotest.fail "metadata.name is not a string");
@@ -138,7 +138,7 @@ let test_manifest () =
          find 0))
     [
       "apiVersion: apiextensions.k8s.io/v1";
-      "name: greetings.demo.ocaml-k8s.dev";
+      "name: greetings.demo.ocaml-kube.dev";
       "openAPIV3Schema:";
       "minLength: 1";
     ]

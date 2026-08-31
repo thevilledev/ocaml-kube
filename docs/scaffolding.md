@@ -1,13 +1,13 @@
 # Operator scaffolding
 
-The installed `ocaml-k8s` executable supports two starting points. `init` makes
+The installed `ocaml-kube` executable supports two starting points. `init` makes
 OCaml types authoritative for a new API, while `scaffold` imports an existing
 CRD and preserves its schema as authoritative.
 
 ## Start from OCaml types
 
 ```sh
-ocaml-k8s init \
+ocaml-kube init \
   --output widget-operator \
   --group example.dev \
   --kind Widget
@@ -34,12 +34,12 @@ source of the codecs, schema, CRD YAML, typed client, and status operations.
 
 ## Import an existing CRD
 
-The installed `ocaml-k8s` executable turns one
+The installed `ocaml-kube` executable turns one
 `apiextensions.k8s.io/v1` CustomResourceDefinition into an independent OCaml
 operator project:
 
 ```sh
-ocaml-k8s scaffold \
+ocaml-kube scaffold \
   --crd deploy/widgets.example.dev.yaml \
   --output widget-operator
 ```
@@ -56,7 +56,7 @@ exact CRD path and a reason. Add `--deny-raw` in CI to reject such fallbacks
 instead of generating them:
 
 ```sh
-ocaml-k8s scaffold --deny-raw --crd deploy/widgets.example.dev.yaml \
+ocaml-kube scaffold --deny-raw --crd deploy/widgets.example.dev.yaml \
   --output widget-operator
 ```
 

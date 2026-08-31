@@ -21,15 +21,15 @@ let certificate_pem () = read (fixture "webhook-cert.pem")
 let private_key_pem () = read (fixture "webhook-key.pem")
 
 let widget_kind : A.group_version_kind =
-  { group = "demo.ocaml-k8s.dev"; version = "v1"; kind = "Widget" }
+  { group = "demo.ocaml-kube.dev"; version = "v1"; kind = "Widget" }
 
 let widget_resource : A.group_version_resource =
-  { group = "demo.ocaml-k8s.dev"; version = "v1"; resource = "widgets" }
+  { group = "demo.ocaml-kube.dev"; version = "v1"; resource = "widgets" }
 
 let widget_json name =
   `Assoc
     [
-      ("apiVersion", `String "demo.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "demo.ocaml-kube.dev/v1");
       ("kind", `String "Widget");
       ( "metadata",
         `Assoc [ ("name", `String name); ("namespace", `String "default") ] );
@@ -100,7 +100,7 @@ let test_patch_response () =
     Ok
       (A.patch
          ~warnings:[ "defaulted spec.message" ]
-         ~audit_annotations:[ ("demo.ocaml-k8s.dev/mutated", "true") ]
+         ~audit_annotations:[ ("demo.ocaml-kube.dev/mutated", "true") ]
          operations)
   in
   let review =
@@ -170,7 +170,7 @@ let test_patch_response () =
     "audit annotation" "true"
     (review |> response
     |> J.member "auditAnnotations"
-    |> J.member "demo.ocaml-k8s.dev/mutated"
+    |> J.member "demo.ocaml-kube.dev/mutated"
     |> J.to_string)
 
 let test_protocol_failures () =
@@ -211,7 +211,7 @@ module Widget = struct
 
   let api =
     {
-      K.Core.group = "demo.ocaml-k8s.dev";
+      K.Core.group = "demo.ocaml-kube.dev";
       version = "v1";
       kind = "Widget";
       plural = "widgets";
@@ -283,8 +283,8 @@ let convert_widget ~cancel:_ ~desired_api_version = function
 let conversion_request =
   {
     C.uid = "conversion-uid";
-    desired_api_version = "demo.ocaml-k8s.dev/v1";
-    objects = [ conversion_object "demo.ocaml-k8s.dev/v1alpha1" "source" ];
+    desired_api_version = "demo.ocaml-kube.dev/v1";
+    objects = [ conversion_object "demo.ocaml-kube.dev/v1alpha1" "source" ];
   }
 
 let conversion_status review =
@@ -309,7 +309,7 @@ let test_conversion_review () =
     "conversion UID" "conversion-uid"
     (review |> response |> J.member "uid" |> J.to_string);
   Alcotest.(check string)
-    "desired version" "demo.ocaml-k8s.dev/v1"
+    "desired version" "demo.ocaml-kube.dev/v1"
     (review |> response
     |> J.member "convertedObjects"
     |> J.index 0 |> J.member "apiVersion" |> J.to_string);
@@ -323,7 +323,7 @@ let test_conversion_review () =
   let changed_identity ~cancel:_ _ =
     Ok
       [
-        ( conversion_object "demo.ocaml-k8s.dev/v1" "converted" |> function
+        ( conversion_object "demo.ocaml-kube.dev/v1" "converted" |> function
           | `Assoc fields ->
               `Assoc
                 (("metadata", `Assoc [ ("name", `String "different") ])
@@ -473,7 +473,7 @@ let test_tls_server () =
       let rendered = K.Metrics.render metrics in
       Alcotest.(check bool)
         "webhook metrics" true
-        (String.starts_with ~prefix:"# HELP ocaml_k8s_webhook_duration_seconds"
+        (String.starts_with ~prefix:"# HELP ocaml_kube_webhook_duration_seconds"
            rendered));
   (match !server with
   | None -> Alcotest.fail "webhook server was not captured"

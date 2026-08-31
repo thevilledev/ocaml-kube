@@ -122,7 +122,7 @@ module Schema = struct
         `Assoc
           [
             ("allOf", `List [ value ]);
-            ("x-ocaml-k8s-decoration-error", `Bool true);
+            ("x-ocaml-kube-decoration-error", `Bool true);
           ]
 
   let rec to_json = function

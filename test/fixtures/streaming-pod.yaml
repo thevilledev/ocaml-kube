@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ocaml-k8s-streaming-check
+  name: ocaml-kube-streaming-check
   namespace: default
   labels:
-    ocaml-k8s.dev/integration: streaming
+    ocaml-kube.dev/integration: streaming
 spec:
   restartPolicy: Never
   containers:

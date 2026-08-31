@@ -30,7 +30,7 @@ let config_map name =
        [
          ("apiVersion", `String "v1");
          ("kind", `String "ConfigMap");
-         ("metadata", metadata name [ ("ocaml-k8s.dev/client-check", "true") ]);
+         ("metadata", metadata name [ ("ocaml-kube.dev/client-check", "true") ]);
          ("data", `Assoc [ ("proof", `String name) ]);
        ])
 
@@ -153,8 +153,8 @@ let () =
     | Error message -> fail ("configuration error: " ^ message)
   in
   let client = K.Client.create config in
-  let deployment_name = "ocaml-k8s-client-check" in
-  let selector = "ocaml-k8s.dev/client-check=true" in
+  let deployment_name = "ocaml-kube-client-check" in
+  let selector = "ocaml-kube.dev/client-check=true" in
   let cleanup () =
     ignore
       (K.Dynamic.delete client ~api:K8s.Apps_v1.Deployment.api
@@ -173,12 +173,12 @@ let () =
            ~label_selector:selector client ~api:K8s.Core_v1.ConfigMap.api);
       K.Dynamic.create client ~api:K8s.Core_v1.ConfigMap.api
         ~namespace:"default"
-        (config_map "ocaml-k8s-delete-one")
+        (config_map "ocaml-kube-delete-one")
       |> require "create first collection object"
       |> ignore;
       K.Dynamic.create client ~api:K8s.Core_v1.ConfigMap.api
         ~namespace:"default"
-        (config_map "ocaml-k8s-delete-two")
+        (config_map "ocaml-kube-delete-two")
       |> require "create second collection object"
       |> ignore;
       K.Dynamic.delete_collection ~namespace:"default" ~label_selector:selector

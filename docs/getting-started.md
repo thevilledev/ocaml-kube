@@ -62,7 +62,7 @@ subresources, logs, and upgraded connections.
 Generate an OCaml-first project:
 
 ```sh
-ocaml-k8s init \
+ocaml-kube init \
   --output widget-operator \
   --group example.dev \
   --kind Widget
@@ -71,7 +71,7 @@ ocaml-k8s init \
 Or import an existing structural CRD:
 
 ```sh
-ocaml-k8s scaffold \
+ocaml-kube scaffold \
   --crd deploy/widget-crd.yaml \
   --output widget-operator
 ```
@@ -87,7 +87,7 @@ Create a local cluster and run the proof operator:
 
 ```sh
 kind create cluster \
-  --name ocaml-k8s-poc \
+  --name ocaml-kube-poc \
   --kubeconfig "$PWD/kubeconfig.kind"
 kubectl --kubeconfig "$PWD/kubeconfig.kind" apply -f deploy/crd.yaml
 opam exec -- dune exec examples/greeting_operator.exe -- \

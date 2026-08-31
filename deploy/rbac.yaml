@@ -10,7 +10,7 @@ metadata:
   name: kube-greeting-operator
 rules:
   - apiGroups:
-      - demo.ocaml-k8s.dev
+      - demo.ocaml-kube.dev
     resources:
       - greetings
       - greetings/status

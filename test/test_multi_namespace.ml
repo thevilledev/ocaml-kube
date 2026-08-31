@@ -21,7 +21,7 @@ module Entry = struct
 
   let api =
     {
-      K.Core.group = "testing.ocaml-k8s.dev";
+      K.Core.group = "testing.ocaml-kube.dev";
       version = "v1";
       kind = "Entry";
       plural = "entries";
@@ -34,7 +34,7 @@ module Entry = struct
   let to_json value =
     `Assoc
       [
-        ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+        ("apiVersion", `String "testing.ocaml-kube.dev/v1");
         ("kind", `String "Entry");
         ("metadata", K.Core.object_meta_to_json value.metadata);
         ("bucket", `String value.bucket);
@@ -176,7 +176,7 @@ let test_large_store_stress () =
 
 let widget_api =
   {
-    K.Core.group = "testing.ocaml-k8s.dev";
+    K.Core.group = "testing.ocaml-kube.dev";
     version = "v1";
     kind = "Widget";
     plural = "widgets";
@@ -253,7 +253,7 @@ let test_scope_validation () =
 let widget_json ~namespace ~name ~resource_version =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "Widget");
       ( "metadata",
         `Assoc
@@ -267,7 +267,7 @@ let widget_json ~namespace ~name ~resource_version =
 let list_json resource_version items =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "WidgetList");
       ("metadata", `Assoc [ ("resourceVersion", `String resource_version) ]);
       ("items", `List items);
@@ -553,7 +553,7 @@ let test_watch_scope_mismatch_fails_reflector () =
 let gadget_json ~namespace ~name ~owner ~resource_version =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "Gadget");
       ( "metadata",
         `Assoc
@@ -566,7 +566,7 @@ let gadget_json ~namespace ~name ~owner ~resource_version =
                 [
                   `Assoc
                     [
-                      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+                      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
                       ("kind", `String "Widget");
                       ("name", `String owner);
                       ("uid", `String ("uid-" ^ owner));
@@ -599,7 +599,7 @@ let test_multi_namespace_owned_source () =
               T.respond_json
                 (`Assoc
                    [
-                     ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+                     ("apiVersion", `String "testing.ocaml-kube.dev/v1");
                      ("kind", `String "GadgetList");
                      ("metadata", `Assoc [ ("resourceVersion", `String "1") ]);
                      ( "items",

@@ -1,4 +1,4 @@
-apiVersion: demo.ocaml-k8s.dev/v1alpha1
+apiVersion: demo.ocaml-kube.dev/v1alpha1
 kind: Greeting
 metadata:
   name: hello-ocaml

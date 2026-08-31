@@ -2,7 +2,7 @@ module K = Kube
 
 let widget_api =
   {
-    K.Core.group = "testing.ocaml-k8s.dev";
+    K.Core.group = "testing.ocaml-kube.dev";
     version = "v1";
     kind = "Widget";
     plural = "widgets";
@@ -25,7 +25,7 @@ module Widget_store = K.Store.Make (Widget)
 
 let gadget_api =
   {
-    K.Core.group = "testing.ocaml-k8s.dev";
+    K.Core.group = "testing.ocaml-kube.dev";
     version = "v1";
     kind = "Gadget";
     plural = "gadgets";
@@ -94,7 +94,7 @@ let test_object_references () =
     K.Core.object_reference ~field_path:"spec.target" widget_api metadata
   in
   Alcotest.(check string)
-    "reference API version" "testing.ocaml-k8s.dev/v1" reference.api_version;
+    "reference API version" "testing.ocaml-kube.dev/v1" reference.api_version;
   Alcotest.(check (option string))
     "reference resource version" (Some "42")
     (Option.map K.Core.Resource_version.to_string reference.resource_version);
@@ -707,35 +707,35 @@ let test_metrics_registry () =
   let registry = K.Metrics.create () in
   let labels = [ ("controller", "greeting") ] in
   let active =
-    K.Metrics.Gauge.create ~registry ~name:"ocaml_k8s_active_workers"
+    K.Metrics.Gauge.create ~registry ~name:"ocaml_kube_active_workers"
       ~help:"Active reconciliation workers." ~labels ()
   in
   let reconciliations =
-    K.Metrics.Counter.create ~registry ~name:"ocaml_k8s_reconciliations_total"
+    K.Metrics.Counter.create ~registry ~name:"ocaml_kube_reconciliations_total"
       ~help:"Completed reconciliation attempts." ~labels ()
   in
   let duration =
     K.Metrics.Histogram.create ~registry
-      ~name:"ocaml_k8s_reconcile_duration_seconds"
+      ~name:"ocaml_kube_reconcile_duration_seconds"
       ~help:"Reconciliation latency." ~buckets:[ 1.; 5. ] ~labels ()
   in
   K.Metrics.Gauge.set active 2.;
   K.Metrics.Counter.add reconciliations 3.;
   List.iter (K.Metrics.Histogram.observe duration) [ 0.5; 3.; 7. ];
   let expected =
-    {|# HELP ocaml_k8s_active_workers Active reconciliation workers.
-# TYPE ocaml_k8s_active_workers gauge
-ocaml_k8s_active_workers{controller="greeting"} 2
-# HELP ocaml_k8s_reconcile_duration_seconds Reconciliation latency.
-# TYPE ocaml_k8s_reconcile_duration_seconds histogram
-ocaml_k8s_reconcile_duration_seconds_bucket{controller="greeting",le="1"} 1
-ocaml_k8s_reconcile_duration_seconds_bucket{controller="greeting",le="5"} 2
-ocaml_k8s_reconcile_duration_seconds_bucket{controller="greeting",le="+Inf"} 3
-ocaml_k8s_reconcile_duration_seconds_sum{controller="greeting"} 10.5
-ocaml_k8s_reconcile_duration_seconds_count{controller="greeting"} 3
-# HELP ocaml_k8s_reconciliations_total Completed reconciliation attempts.
-# TYPE ocaml_k8s_reconciliations_total counter
-ocaml_k8s_reconciliations_total{controller="greeting"} 3
+    {|# HELP ocaml_kube_active_workers Active reconciliation workers.
+# TYPE ocaml_kube_active_workers gauge
+ocaml_kube_active_workers{controller="greeting"} 2
+# HELP ocaml_kube_reconcile_duration_seconds Reconciliation latency.
+# TYPE ocaml_kube_reconcile_duration_seconds histogram
+ocaml_kube_reconcile_duration_seconds_bucket{controller="greeting",le="1"} 1
+ocaml_kube_reconcile_duration_seconds_bucket{controller="greeting",le="5"} 2
+ocaml_kube_reconcile_duration_seconds_bucket{controller="greeting",le="+Inf"} 3
+ocaml_kube_reconcile_duration_seconds_sum{controller="greeting"} 10.5
+ocaml_kube_reconcile_duration_seconds_count{controller="greeting"} 3
+# HELP ocaml_kube_reconciliations_total Completed reconciliation attempts.
+# TYPE ocaml_kube_reconciliations_total counter
+ocaml_kube_reconciliations_total{controller="greeting"} 3
 |}
   in
   Alcotest.(check string)
@@ -784,7 +784,7 @@ let test_diagnostics_server () =
       let metrics = K.Metrics.create () in
       let requests =
         K.Metrics.Counter.create ~registry:metrics
-          ~name:"ocaml_k8s_test_requests_total" ~help:"Test requests." ()
+          ~name:"ocaml_kube_test_requests_total" ~help:"Test requests." ()
       in
       K.Metrics.Counter.inc requests;
       let diagnostics = K.Diagnostics.create ~port:0 ~health ~metrics () in
@@ -825,7 +825,7 @@ let test_diagnostics_server () =
         (contains_substring metrics_response K.Metrics.content_type);
       Alcotest.(check bool)
         "metrics rendered" true
-        (contains_substring metrics_response "ocaml_k8s_test_requests_total 1");
+        (contains_substring metrics_response "ocaml_kube_test_requests_total 1");
       K.Cancel.cancel cancel;
       Thread.join manager_thread;
       (match !result with
@@ -849,7 +849,7 @@ let widget_json ?(namespace = "default") ?(labels = []) ~name ~resource_version
     () =
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "Widget");
       ( "metadata",
         `Assoc
@@ -869,7 +869,7 @@ let list_json ?continue ?remaining ~resource_version items =
   in
   `Assoc
     [
-      ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+      ("apiVersion", `String "testing.ocaml-kube.dev/v1");
       ("kind", `String "WidgetList");
       ( "metadata",
         `Assoc
@@ -1023,7 +1023,7 @@ let test_controller_reconcile_timeout () =
           Alcotest.(check bool)
             "timeout metric" true
             (contains_substring (K.Metrics.render metrics)
-               "ocaml_k8s_reconciliations_total{controller=\"timeout-test\",result=\"timeout\"} \
+               "ocaml_kube_reconciliations_total{controller=\"timeout-test\",result=\"timeout\"} \
                 1")))
 
 let request_target request =
@@ -2299,13 +2299,13 @@ let test_shared_reflector_cache () =
                 (controller ^ " reconciliation metric")
                 true
                 (contains_substring rendered_metrics
-                   ("ocaml_k8s_reconciliations_total{controller=\"" ^ controller
+                   ("ocaml_kube_reconciliations_total{controller=\"" ^ controller
                   ^ "\",result=\"done\"} 1"));
               Alcotest.(check bool)
                 (controller ^ " active workers drained")
                 true
                 (contains_substring rendered_metrics
-                   ("ocaml_k8s_active_reconcile_workers{controller=\""
+                   ("ocaml_kube_active_reconcile_workers{controller=\""
                   ^ controller ^ "\"} 0")))
             [ "shared-first"; "shared-second" ];
           let targets = List.rev_map request_target !requests in
@@ -2361,7 +2361,7 @@ let test_owned_resource_watch () =
       let gadget ~owner ~resource_version =
         `Assoc
           [
-            ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+            ("apiVersion", `String "testing.ocaml-kube.dev/v1");
             ("kind", `String "Gadget");
             ( "metadata",
               `Assoc
@@ -2374,7 +2374,7 @@ let test_owned_resource_watch () =
                       [
                         `Assoc
                           [
-                            ("apiVersion", `String "testing.ocaml-k8s.dev/v1");
+                            ("apiVersion", `String "testing.ocaml-kube.dev/v1");
                             ("kind", `String "Widget");
                             ("name", `String owner);
                             ("uid", `String (owner ^ "-uid"));
@@ -2541,7 +2541,7 @@ let test_owned_resource_watch () =
             List.filter
               (fun target ->
                 String.starts_with
-                  ~prefix:"/apis/testing.ocaml-k8s.dev/v1/gadgets" target)
+                  ~prefix:"/apis/testing.ocaml-kube.dev/v1/gadgets" target)
               targets
           in
           Alcotest.(check int)
@@ -3132,7 +3132,7 @@ let test_dynamic_list_type_meta_defaulting () =
           match page.items with
           | [ item ] ->
               Alcotest.(check string)
-                "defaulted API version" "testing.ocaml-k8s.dev/v1"
+                "defaulted API version" "testing.ocaml-kube.dev/v1"
                 item.K.Dynamic.api_version;
               Alcotest.(check string)
                 "defaulted kind" "Widget" item.K.Dynamic.kind
@@ -3305,7 +3305,7 @@ let test_collection_subresources_scale_and_logs () =
             (request_method delete_default);
           Alcotest.(check string)
             "safe default collection scope"
-            "/apis/testing.ocaml-k8s.dev/v1/namespaces/default/widgets"
+            "/apis/testing.ocaml-kube.dev/v1/namespaces/default/widgets"
             (Uri.path (target delete_default));
           Alcotest.(check (option string))
             "collection label selector" (Some "app=demo")
@@ -3326,7 +3326,7 @@ let test_collection_subresources_scale_and_logs () =
             (delete_field "propagationPolicy" = Some (`String "Foreground"));
           Alcotest.(check string)
             "explicit all-namespace collection scope"
-            "/apis/testing.ocaml-k8s.dev/v1/widgets"
+            "/apis/testing.ocaml-kube.dev/v1/widgets"
             (Uri.path (target delete_all));
           Alcotest.(check (list string))
             "subresource verbs"
@@ -3335,7 +3335,7 @@ let test_collection_subresources_scale_and_logs () =
                [ create_subresource; replace_subresource; delete_subresource ]);
           Alcotest.(check string)
             "create subresource path"
-            "/apis/testing.ocaml-k8s.dev/v1/namespaces/operators/widgets/one/eviction"
+            "/apis/testing.ocaml-kube.dev/v1/namespaces/operators/widgets/one/eviction"
             (Uri.path (target create_subresource));
           Alcotest.(check (option string))
             "subresource field manager" (Some "operator/tests")
@@ -3345,7 +3345,7 @@ let test_collection_subresources_scale_and_logs () =
             (List.map request_method [ get_scale; replace_scale; patch_scale ]);
           Alcotest.(check string)
             "scale endpoint"
-            "/apis/testing.ocaml-k8s.dev/v1/namespaces/operators/widgets/one/scale"
+            "/apis/testing.ocaml-kube.dev/v1/namespaces/operators/widgets/one/scale"
             (Uri.path (target get_scale));
           Alcotest.(check bool)
             "scale patch media type" true
@@ -3354,7 +3354,7 @@ let test_collection_subresources_scale_and_logs () =
           let log_target = target logs in
           Alcotest.(check string)
             "log endpoint"
-            "/apis/testing.ocaml-k8s.dev/v1/namespaces/operators/widgets/one/log"
+            "/apis/testing.ocaml-kube.dev/v1/namespaces/operators/widgets/one/log"
             (Uri.path log_target);
           Alcotest.(check (option string))
             "encoded container" (Some "main container")
@@ -3609,7 +3609,7 @@ let test_event_recorder () =
           let recorder =
             match
               K.Events.create ~client ~namespace:"operator-system"
-                ~reporting_controller:"demo.ocaml-k8s.dev/greeting-controller"
+                ~reporting_controller:"demo.ocaml-kube.dev/greeting-controller"
                 ~reporting_instance:"greeting-operator-pod-7"
                 ~now:(fun () -> fixed_now)
                 ()
@@ -4117,7 +4117,7 @@ let test_patch_and_finalizer_requests () =
           (K.Client.Apply
              {
                value = widget_json ~name:"patched" ~resource_version:"20" ();
-               field_manager = "ocaml-k8s-test";
+               field_manager = "ocaml-kube-test";
                force = true;
              }))
   in
@@ -4128,10 +4128,10 @@ let test_patch_and_finalizer_requests () =
   let target = request_target request |> Uri.of_string in
   Alcotest.(check (option string))
     "default object namespace"
-    (Some "/apis/testing.ocaml-k8s.dev/v1/namespaces/default/widgets/patched")
+    (Some "/apis/testing.ocaml-kube.dev/v1/namespaces/default/widgets/patched")
     (Some (Uri.path target));
   Alcotest.(check (option string))
-    "apply manager" (Some "ocaml-k8s-test")
+    "apply manager" (Some "ocaml-kube-test")
     (Uri.get_query_param target "fieldManager");
   Alcotest.(check (option string))
     "apply force" (Some "true")
@@ -4156,7 +4156,7 @@ let test_patch_and_finalizer_requests () =
     widget_json ~name:"patched" ~resource_version:"22" ()
     |> Yojson.Safe.to_string |> response
   in
-  let finalizer = "testing.ocaml-k8s.dev/finalizer" in
+  let finalizer = "testing.ocaml-kube.dev/finalizer" in
   let callback_called = Atomic.make false in
   let result, requests =
     with_server [ finalizer_response ] (fun _port config ->

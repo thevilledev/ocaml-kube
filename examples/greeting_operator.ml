@@ -3,7 +3,7 @@ module Greeting_api = K.Client.For (Greeting)
 module Greeting_finalizer = K.Controller.Finalizer (Greeting)
 module Greeting_controller = K.Controller.Make (Greeting)
 
-let finalizer = "greetings.demo.ocaml-k8s.dev/finalizer"
+let finalizer = "greetings.demo.ocaml-kube.dev/finalizer"
 let error_string error = Format.asprintf "%a" K.Client.pp_error error
 
 let record_event recorder greeting ~type_ ~reason ~action ~note =
@@ -137,7 +137,7 @@ let () =
             let recorder =
               match
                 K.Events.create ~client
-                  ~reporting_controller:"demo.ocaml-k8s.dev/greeting-controller"
+                  ~reporting_controller:"demo.ocaml-kube.dev/greeting-controller"
                   ~reporting_instance:process_identity ()
               with
               | Ok recorder -> recorder
@@ -187,12 +187,12 @@ let () =
                in
                let leader =
                  K.Metrics.Gauge.create ~registry:metrics
-                   ~name:"ocaml_k8s_leader"
+                   ~name:"ocaml_kube_leader"
                    ~help:"Whether this replica is leader." ()
                in
                let transitions =
                  K.Metrics.Counter.create ~registry:metrics
-                   ~name:"ocaml_k8s_leader_transitions_total"
+                   ~name:"ocaml_kube_leader_transitions_total"
                    ~help:"Leadership transitions observed by this replica." ()
                in
                let leader_component =

@@ -9,7 +9,7 @@ cleanup() {
   trap - EXIT INT TERM
   if [ -n "$acceptance_temp" ]; then
     case "$acceptance_temp" in
-      */ocaml-k8s-scaffold-acceptance.*) rm -rf -- "$acceptance_temp" ;;
+      */ocaml-kube-scaffold-acceptance.*) rm -rf -- "$acceptance_temp" ;;
       *)
         echo "refusing to remove unexpected path: $acceptance_temp" >&2
         status=1
@@ -26,7 +26,7 @@ trap 'exit 143' TERM
 cd "$repository"
 opam exec -- dune build @all @install
 
-acceptance_temp=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-k8s-scaffold-acceptance.XXXXXX")
+acceptance_temp=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-kube-scaffold-acceptance.XXXXXX")
 install_lib="$repository/_build/install/default/lib"
 if [ -n "${OCAMLPATH:-}" ]; then
   acceptance_ocamlpath="$install_lib:$OCAMLPATH"
@@ -38,7 +38,7 @@ build_case() {
   fixture=$1
   project_name=$2
   project="$acceptance_temp/$project_name"
-  "$repository/_build/default/scaffold/ocaml_k8s.exe" scaffold \
+  "$repository/_build/default/scaffold/ocaml_kube.exe" scaffold \
     --crd "$repository/scaffold/fixtures/real-world/$fixture" \
     --output "$project"
   OCAMLPATH=$acceptance_ocamlpath opam exec -- dune build \
@@ -51,7 +51,7 @@ build_case keda-scaledobject-v2.20.1.yaml scaled-object-operator
 build_case prometheus-servicemonitor-v0.93.0.yaml service-monitor-operator
 
 init_project="$acceptance_temp/widget-operator"
-"$repository/_build/default/scaffold/ocaml_k8s.exe" init \
+"$repository/_build/default/scaffold/ocaml_kube.exe" init \
   --output "$init_project" \
   --group example.dev \
   --kind Widget

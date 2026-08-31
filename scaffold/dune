@@ -6,9 +6,9 @@
  (libraries unix yojson kube.crd))
 
 (executable
- (name ocaml_k8s)
- (public_name ocaml-k8s)
- (modules ocaml_k8s)
+ (name ocaml_kube)
+ (public_name ocaml-kube)
+ (modules ocaml_kube)
  (libraries kube_scaffold))
 
 (test

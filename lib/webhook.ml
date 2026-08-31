@@ -121,16 +121,16 @@ let route_metrics registry path =
   let labels = [ ("webhook", path) ] in
   {
     requests =
-      Metrics.Counter.create ~registry ~name:"ocaml_k8s_webhook_requests_total"
+      Metrics.Counter.create ~registry ~name:"ocaml_kube_webhook_requests_total"
         ~help:"JSON review requests received by a configured webhook." ~labels
         ();
     failures =
-      Metrics.Counter.create ~registry ~name:"ocaml_k8s_webhook_failures_total"
+      Metrics.Counter.create ~registry ~name:"ocaml_kube_webhook_failures_total"
         ~help:"JSON review requests rejected before a response was produced."
         ~labels ();
     duration =
       Metrics.Histogram.create ~registry
-        ~name:"ocaml_k8s_webhook_duration_seconds"
+        ~name:"ocaml_kube_webhook_duration_seconds"
         ~help:"JSON review handling latency in seconds."
         ~buckets:[ 0.001; 0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.; 2.5 ]
         ~labels ();

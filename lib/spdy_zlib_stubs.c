@@ -43,7 +43,7 @@ static void ocaml_kube_zlib_finalize(value wrapped)
 }
 
 static struct custom_operations ocaml_kube_zlib_operations = {
-  "ocaml-k8s.spdy-zlib-state",
+  "ocaml-kube.spdy-zlib-state",
   ocaml_kube_zlib_finalize,
   custom_compare_default,
   custom_hash_default,

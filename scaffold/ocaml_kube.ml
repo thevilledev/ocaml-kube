@@ -1,5 +1,5 @@
 let fail message =
-  prerr_endline ("ocaml-k8s: " ^ message);
+  prerr_endline ("ocaml-kube: " ^ message);
   exit 2
 
 let scaffold argv =
@@ -24,7 +24,7 @@ let scaffold argv =
   (try
      Arg.parse_argv ~current argv arguments
        (fun value -> raise (Arg.Bad ("unexpected argument: " ^ value)))
-       "ocaml-k8s scaffold --crd PATH --output DIR [OPTIONS]"
+       "ocaml-kube scaffold --crd PATH --output DIR [OPTIONS]"
    with
   | Arg.Bad message -> fail message
   | Arg.Help message ->
@@ -42,7 +42,7 @@ let scaffold argv =
       let diagnostics = Kube_scaffold.diagnostics definition in
       List.iter
         (fun (diagnostic : Kube_scaffold.diagnostic) ->
-          Printf.eprintf "ocaml-k8s: warning: %s: %s\n%!" diagnostic.path
+          Printf.eprintf "ocaml-kube: warning: %s: %s\n%!" diagnostic.path
             diagnostic.reason)
         diagnostics;
       if !deny_raw && diagnostics <> [] then
@@ -86,7 +86,7 @@ let init argv =
   (try
      Arg.parse_argv ~current argv arguments
        (fun value -> raise (Arg.Bad ("unexpected argument: " ^ value)))
-       "ocaml-k8s init --output DIR --group GROUP --kind KIND [OPTIONS]"
+       "ocaml-kube init --output DIR --group GROUP --kind KIND [OPTIONS]"
    with
   | Arg.Bad message -> fail message
   | Arg.Help message ->
@@ -115,7 +115,7 @@ let init argv =
 
 let usage () =
   prerr_endline
-    "usage: ocaml-k8s COMMAND [OPTIONS]\n\n\
+    "usage: ocaml-kube COMMAND [OPTIONS]\n\n\
      Commands:\n\
     \  init      Create a type-first OCaml operator project\n\
     \  scaffold  Generate an OCaml operator project from a CRD";
@@ -129,7 +129,7 @@ let () =
     | "scaffold" -> scaffold Sys.argv
     | "--help" | "-help" | "-h" ->
         print_endline
-          "ocaml-k8s\n\n\
+          "ocaml-kube\n\n\
            Commands:\n\
           \  init      Create a type-first OCaml operator project\n\
           \  scaffold  Generate an OCaml operator project from a CRD";

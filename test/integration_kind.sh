@@ -5,15 +5,15 @@ repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kubeconfig=${KUBECONFIG:-"$repository/kubeconfig.kind"}
 operator_log_a="$repository/_build/greeting-operator-a.integration.log"
 operator_log_b="$repository/_build/greeting-operator-b.integration.log"
-greeting_resource=greetings.demo.ocaml-k8s.dev
-multi_namespace_a=ocaml-k8s-multi-a
-multi_namespace_b=ocaml-k8s-multi-b
+greeting_resource=greetings.demo.ocaml-kube.dev
+multi_namespace_a=ocaml-kube-multi-a
+multi_namespace_b=ocaml-kube-multi-b
 operator_pid_a=
 operator_pid_b=
 scaffold_pid=
 scaffold_temp=
 scaffold_log=
-streaming_pod=ocaml-k8s-streaming-check
+streaming_pod=ocaml-kube-streaming-check
 
 stop_operator() {
   pid=$1
@@ -86,7 +86,7 @@ cleanup() {
     --namespace default --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if [ -n "$scaffold_temp" ]; then
     case "$scaffold_temp" in
-      */ocaml-k8s-scaffold.*) rm -rf -- "$scaffold_temp" ;;
+      */ocaml-kube-scaffold.*) rm -rf -- "$scaffold_temp" ;;
       *)
         echo "refusing to remove unexpected scaffold path: $scaffold_temp" >&2
         status=1
@@ -101,10 +101,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 run_scaffold_check() {
-  scaffold_temp=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-k8s-scaffold.XXXXXX")
+  scaffold_temp=$(mktemp -d "${TMPDIR:-/tmp}/ocaml-kube-scaffold.XXXXXX")
   scaffold_project="$scaffold_temp/widget-operator"
   scaffold_log="$scaffold_temp/operator.log"
-  "$repository/_build/default/scaffold/ocaml_k8s.exe" scaffold \
+  "$repository/_build/default/scaffold/ocaml_kube.exe" scaffold \
     --crd "$repository/scaffold/fixtures/widget-crd.yaml" \
     --output "$scaffold_project"
   install_lib="$repository/_build/install/default/lib"
@@ -148,7 +148,7 @@ run_scaffold_check() {
   kubectl --kubeconfig "$kubeconfig" delete crd widgets.example.dev \
     --wait=true --timeout=30s
   case "$scaffold_temp" in
-    */ocaml-k8s-scaffold.*) rm -rf -- "$scaffold_temp" ;;
+    */ocaml-kube-scaffold.*) rm -rf -- "$scaffold_temp" ;;
     *)
       echo "refusing to remove unexpected scaffold path: $scaffold_temp" >&2
       return 1
@@ -164,7 +164,7 @@ opam exec -- dune build @all @install
 run_scaffold_check
 kubectl --kubeconfig "$kubeconfig" apply -f deploy/crd.yaml
 kubectl --kubeconfig "$kubeconfig" wait --for=condition=Established \
-  crd/greetings.demo.ocaml-k8s.dev --timeout=60s
+  crd/greetings.demo.ocaml-kube.dev --timeout=60s
 "$repository/_build/default/examples/discovery_check.exe" \
   --kubeconfig "$kubeconfig"
 "$repository/_build/default/examples/client_features_check.exe" \

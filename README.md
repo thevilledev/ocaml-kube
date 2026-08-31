@@ -1,4 +1,4 @@
-# ocaml-k8s
+# ocaml-kube
 
 A native OCaml 5 client and controller runtime for Kubernetes®.
 

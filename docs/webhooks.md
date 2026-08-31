@@ -1,6 +1,6 @@
 # Admission and conversion webhooks
 
-`ocaml-k8s` implements the Kubernetes `admission.k8s.io/v1` and
+`ocaml-kube` implements the Kubernetes `admission.k8s.io/v1` and
 `apiextensions.k8s.io/v1` review protocols and provides a supervised HTTPS
 server for them.
 
@@ -38,7 +38,7 @@ let default_label ~cancel:_ _request =
          Kube.Admission.Add
            {
              path = "/metadata/labels/managed-by";
-             value = `String "ocaml-k8s";
+             value = `String "ocaml-kube";
            };
        ])
 ```

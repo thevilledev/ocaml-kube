@@ -1034,7 +1034,7 @@ let request_with ?cancel ?(headers = []) ?(body = "") ?on_chunk
                   ]
                   @ default_header "Accept" "application/json"
                   @ default_header "Accept-Encoding" "identity"
-                  @ default_header "User-Agent" "ocaml-k8s"
+                  @ default_header "User-Agent" "ocaml-kube"
                   @ (if uses_forward_http_proxy config then
                        match config.proxy_url with
                        | Some proxy ->
@@ -1235,7 +1235,7 @@ let upgrade_once ?cancel ?(headers = []) ?(max_body_bytes = 1024 * 1024)
               ("Connection", "Upgrade");
               ("Content-Length", "0");
             ]
-            @ default_header "User-Agent" "ocaml-k8s"
+            @ default_header "User-Agent" "ocaml-kube"
             @ (if uses_forward_http_proxy config then
                  match config.proxy_url with
                  | Some proxy ->

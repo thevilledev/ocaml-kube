@@ -19,7 +19,7 @@ let metadata namespace name =
     deletion_timestamp = None;
     finalizers = [];
     owner_references = [];
-    labels = [ ("ocaml-k8s.dev/integration", "multi-namespace") ];
+    labels = [ ("ocaml-kube.dev/integration", "multi-namespace") ];
     annotations = [];
   }
 
@@ -37,8 +37,8 @@ let wait_until context predicate =
 let () =
   let kubeconfig = ref None in
   let context = ref None in
-  let namespace_a = ref "ocaml-k8s-multi-a" in
-  let namespace_b = ref "ocaml-k8s-multi-b" in
+  let namespace_a = ref "ocaml-kube-multi-a" in
+  let namespace_b = ref "ocaml-kube-multi-b" in
   let set option value = option := Some value in
   Arg.parse
     [
