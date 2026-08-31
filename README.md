@@ -1,9 +1,13 @@
 # ocaml-k8s
 
-`ocaml-k8s` is a Kubernetes API client and controller runtime built directly on
+`ocaml-k8s` is a Kubernetes® API client and controller runtime built directly on
 OCaml 5, system threads, Unix sockets, and explicit cancellation. Kubernetes
 machinery is implemented in this repository; established OCaml libraries are
 used only for cryptography, TLS, URI handling, JSON, and standard compression.
+
+Kubernetes® is a registered trademark of The Linux Foundation. This project is
+independent and is not affiliated with, sponsored by, or endorsed by The Linux
+Foundation or the Kubernetes project.
 
 The current pre-release implementation includes:
 
