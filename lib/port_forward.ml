@@ -298,7 +298,9 @@ module Forwarder = struct
     Mutex.unlock forwarder.lock;
     if first then (
       List.iter
-        (fun listener -> close_descriptor listener.descriptor)
+        (fun listener ->
+          shutdown_descriptor listener.descriptor;
+          close_descriptor listener.descriptor)
         forwarder.listeners;
       List.iter shutdown_descriptor active;
       close forwarder.connection;
