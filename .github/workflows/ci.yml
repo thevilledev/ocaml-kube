@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: avrea-ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +26,7 @@ jobs:
       - run: opam lint kube.opam
 
   scaffold-acceptance:
-    runs-on: ubuntu-latest
+    runs-on: avrea-ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ocaml/setup-ocaml@v3
