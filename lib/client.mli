@@ -27,12 +27,26 @@ module Transport : sig
     max_error_body_bytes : int option;
   }
 
+  type sensitive_request = {
+    cancel : Cancel.t option;
+    meth : Http.meth;
+    target : string;
+    headers : (string * string) list;
+    secret_headers : (string * Secret.t) list;
+    body : Secret.t option;
+    max_body_bytes : int option;
+    hardened : bool;
+  }
+  (** A request whose protected values are borrowed for the duration of the
+      synchronous callback. The response body is owned by the caller. *)
+
   type t
 
   val make :
     ?close:(unit -> unit) ->
     ?websocket:
       (websocket_request -> (Websocket.t, Websocket.connect_error) result) ->
+    ?sensitive:(sensitive_request -> (Http.Sensitive.response, string) result) ->
     (request -> (Http.response, string) result) ->
     t
   (** Build a custom transport. The callback may be invoked concurrently and
@@ -46,6 +60,12 @@ module Transport : sig
   val execute : t -> request -> (Http.response, string) result
   (** Execute a prepared request. This entry point allows transports to be
       decorated without exposing their implementation. *)
+
+  val execute_sensitive :
+    t -> sensitive_request -> (Http.Sensitive.response, string) result
+  (** Execute a protected request. A custom transport must opt into this path;
+      the compatibility callback is never used as a fallback because doing so
+      would require exposing the protected values as heap strings. *)
 
   val close : t -> unit
   (** Close a transport exactly once. After closure, new requests fail without
@@ -246,6 +266,72 @@ val raw :
   (Http.response, error) result
 (** Execute an authenticated request. Refreshable exec credentials are
     invalidated and retried once after a 401 response. *)
+
+module Sensitive : sig
+  type write_result = { resource_version : string option }
+
+  type secret_manifest = {
+    namespace : string;
+    name : string;
+    type_ : string option;
+    immutable : bool option;
+    labels : (string * string) list;
+    annotations : (string * string) list;
+    owner_references : Core.owner_reference list;
+    data : (string * Secret.t) list;
+  }
+
+  val raw :
+    ?cancel:Cancel.t ->
+    ?headers:(string * string) list ->
+    ?secret_headers:(string * Secret.t) list ->
+    ?body:Secret.t ->
+    ?max_body_bytes:int ->
+    ?hardened:bool ->
+    ?strict_credentials:bool ->
+    t ->
+    Http.meth ->
+    string ->
+    (Http.Sensitive.response, error) result
+  (** Execute an authenticated request without copying protected headers or
+      bodies into ordinary OCaml strings. In [strict_credentials] mode (the
+      default), credentials originating in kubeconfig strings, basic auth,
+      client keys, or exec output are rejected. Error response bodies are
+      destroyed and are never decoded into {!api_error.body}. *)
+
+  val create_secret :
+    ?cancel:Cancel.t ->
+    ?hardened:bool ->
+    t ->
+    secret_manifest ->
+    (write_result, error) result
+  (** Create a Secret. Base64 and JSON are emitted directly into a temporary
+      protected request buffer, which is destroyed before this call returns. *)
+
+  val patch_secret :
+    ?cancel:Cancel.t ->
+    ?hardened:bool ->
+    t ->
+    namespace:string ->
+    name:string ->
+    source_annotation:string * string ->
+    data:(string * Secret.t) list ->
+    (write_result, error) result
+  (** Atomically test the source annotation and replace [/data]. This operation
+      never reads the target Secret. *)
+
+  val create_service_account_token :
+    ?cancel:Cancel.t ->
+    ?hardened:bool ->
+    ?audiences:string list ->
+    ?expiration_seconds:int64 ->
+    t ->
+    namespace:string ->
+    service_account:string ->
+    (Secret.t, error) result
+  (** Request a bound ServiceAccount token. The returned token is owned by the
+      caller and must be destroyed. *)
+end
 
 val websocket :
   ?cancel:Cancel.t ->

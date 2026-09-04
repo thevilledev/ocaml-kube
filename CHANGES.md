@@ -9,10 +9,19 @@ Versioning once the first release is tagged.
 
 - Reliable SIGINT and SIGTERM cancellation while the operator supervisor is
   blocked waiting for components, including generated operators on Linux.
+- Leader-election standby readiness now reports healthy while participating in
+  election, preventing multi-replica rolling deployments from deadlocking while
+  preserving the active-leader metric and single-reconciler execution.
 - Recoverable per-connection port-forward stream failures, with bounded and
   diagnostic integration probes instead of indefinite CI hangs.
 
 ### Added
+
+- `Http.Sensitive` and `Client.Sensitive` protected request paths backed by
+  `Secret.t`, including scoped token-file authorization, bounded protected
+  response bodies, direct protected JSON/base64 Secret creation and atomic
+  patching, and protected ServiceAccount TokenRequest results. Existing string
+  APIs remain source-compatible and retain their original memory semantics.
 
 - A batteries-included `Kube.Operator` runner that centralizes standard CLI
   flags, configuration, signal cancellation, client ownership, diagnostics,

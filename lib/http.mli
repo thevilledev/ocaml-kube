@@ -85,6 +85,53 @@ val request_once :
 (** Execute one request on a connection that is always closed afterwards. The
     timeout defaults and phase semantics are the same as [create]. *)
 
+module Sensitive : sig
+  type response = {
+    status : int;
+    reason : string;
+    headers : (string * string) list;
+    body : Secret.t;
+  }
+  (** A response whose body is owned by the caller and must be destroyed. *)
+
+  val request :
+    ?cancel:Cancel.t ->
+    ?headers:(string * string) list ->
+    ?secret_headers:(string * Secret.t) list ->
+    ?body:Secret.t ->
+    ?max_body_bytes:int ->
+    ?hardened:bool ->
+    t ->
+    meth ->
+    string ->
+    (response, string) result
+  (** Execute a request without placing sensitive header values, the request
+      body, or the response body in ordinary OCaml strings. Secret inputs are
+      borrowed for the synchronous call. The returned body is always protected,
+      including for non-success status codes. *)
+
+  val request_once :
+    ?cancel:Cancel.t ->
+    ?headers:(string * string) list ->
+    ?secret_headers:(string * Secret.t) list ->
+    ?body:Secret.t ->
+    ?max_body_bytes:int ->
+    ?hardened:bool ->
+    ?connect_timeout:float ->
+    ?write_timeout:float ->
+    ?response_header_timeout:float ->
+    Config.t ->
+    meth ->
+    string ->
+    (response, string) result
+
+  module For_testing : sig
+    val parse_response_head :
+      string -> (string * int * string * (string * string) list, string) result
+    (** Pure HTTP response-head parser entry point for fuzzing. *)
+  end
+end
+
 val upgrade_once :
   ?cancel:Cancel.t ->
   ?headers:(string * string) list ->

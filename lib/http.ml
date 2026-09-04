@@ -1046,7 +1046,7 @@ let request_with ?cancel ?(headers = []) ?(body = "") ?on_chunk
                      else [])
                   @ headers
                 in
-                let output = Buffer.create (512 + String.length body) in
+                let output = Buffer.create 512 in
                 Buffer.add_string output
                   (method_string meth ^ " " ^ request_target config path
                  ^ " HTTP/1.1\r\n");
@@ -1055,10 +1055,10 @@ let request_with ?cancel ?(headers = []) ?(body = "") ?on_chunk
                     Buffer.add_string output (name ^ ": " ^ value ^ "\r\n"))
                   request_headers;
                 Buffer.add_string output "\r\n";
-                Buffer.add_string output body;
                 with_phase_timeout ?cancel ~phase:"request write"
                   ~timeout:write_timeout flow (fun () ->
-                    write flow (Buffer.contents output));
+                    write flow (Buffer.contents output);
+                    if body <> "" then write flow body);
                 let* head, pending =
                   read_response_head ?cancel ~timeout:response_header_timeout
                     flow
@@ -1163,6 +1163,367 @@ let request_once ?cancel ?headers ?body ?on_chunk ?max_body_bytes
     ~acquire:(fun () -> open_flow ?cancel ~connect_timeout config)
     ~release:(fun ~reusable:_ flow -> close_flow flow)
     ~persistent:false ~write_timeout ~response_header_timeout meth path
+
+module Sensitive = struct
+  type response = {
+    status : int;
+    reason : string;
+    headers : (string * string) list;
+    body : Secret.t;
+  }
+
+  let secret_length = function
+    | None -> 0
+    | Some value -> Secret.length value
+
+  let valid_secret_header (_, value) =
+    Secret.Unsafe.with_string_view value valid_header_value
+
+  let read_header ?cancel ~timeout flow =
+    let output = Buffer.create 512 in
+    let one = Bytes.create 1 in
+    let matched = ref 0 in
+    let marker = "\r\n\r\n" in
+    let rec loop () =
+      if Buffer.length output > 1024 * 1024 then
+        Error "HTTP headers exceed 1 MiB"
+      else
+        let count = read flow one 0 1 in
+        if count = 0 then Error "EOF before HTTP response headers"
+        else
+          let character = Bytes.get one 0 in
+          Buffer.add_char output character;
+          if character = marker.[!matched] then incr matched
+          else if character = marker.[0] then matched := 1
+          else matched := 0;
+          if !matched = String.length marker then
+            let contents = Buffer.contents output in
+            Ok (String.sub contents 0 (String.length contents - 4))
+          else loop ()
+    in
+    with_phase_timeout ?cancel ~phase:"response headers" ~timeout flow loop
+
+  let read_line_direct flow =
+    let output = Buffer.create 32 in
+    let one = Bytes.create 1 in
+    let rec loop previous_cr =
+      if Buffer.length output > 8192 then Error "HTTP framing line too long"
+      else
+        let count = read flow one 0 1 in
+        if count = 0 then Error "unexpected EOF while reading HTTP framing"
+        else
+          let character = Bytes.get one 0 in
+          if previous_cr && character = '\n' then
+            let value = Buffer.contents output in
+            Ok (String.sub value 0 (String.length value - 1))
+          else (
+            Buffer.add_char output character;
+            loop (character = '\r'))
+    in
+    loop false
+
+  let read_into_secret flow destination ~off ~len =
+    Secret.Unsafe.with_bytes_view destination (fun buffer ->
+        read flow buffer off len)
+
+  let read_exact_secret flow destination ~off ~len =
+    let rec loop offset remaining =
+      if remaining = 0 then Ok ()
+      else
+        let count =
+          read_into_secret flow destination ~off:offset ~len:remaining
+        in
+        if count = 0 then Error "unexpected EOF in HTTP body"
+        else loop (offset + count) (remaining - count)
+    in
+    loop off len
+
+  let exact_secret ~hardened source length =
+    if Secret.length source = length then source
+    else
+      match Secret.sub ~hardened source ~off:0 ~len:length with
+      | result ->
+          Secret.destroy source;
+          result
+      | exception exn ->
+          Secret.destroy source;
+          raise exn
+
+  let read_content_length ~hardened ~max_body_bytes flow length =
+    if length > max_body_bytes then
+      Error (Printf.sprintf "HTTP body exceeds %d bytes" max_body_bytes)
+    else
+      let body = Secret.create ~hardened length in
+      match read_exact_secret flow body ~off:0 ~len:length with
+      | Ok () -> Ok body
+      | Error _ as error ->
+          Secret.destroy body;
+          error
+      | exception exn ->
+          Secret.destroy body;
+          raise exn
+
+  let read_chunked_secret ~hardened ~max_body_bytes flow =
+    let capacity = max 1 max_body_bytes in
+    let body = Secret.create ~hardened capacity in
+    let used = ref 0 in
+    let fail error =
+      Secret.destroy body;
+      Error error
+    in
+    let rec trailers () =
+      match read_line_direct flow with
+      | Error message -> fail message
+      | Ok "" -> Ok (exact_secret ~hardened body !used)
+      | Ok _ -> trailers ()
+    and chunks () =
+      match read_line_direct flow with
+      | Error message -> fail message
+      | Ok line -> (
+          let size_text, _extensions = split_once ';' line in
+          match int_of_string_opt ("0x" ^ String.trim size_text) with
+          | None -> fail ("invalid HTTP chunk size: " ^ line)
+          | Some size when size < 0 -> fail "negative HTTP chunk size"
+          | Some 0 -> trailers ()
+          | Some size when size > max_body_bytes - !used ->
+              fail (Printf.sprintf "HTTP body exceeds %d bytes" max_body_bytes)
+          | Some size -> (
+              match read_exact_secret flow body ~off:!used ~len:size with
+              | Error message -> fail message
+              | Ok () -> (
+                  used := !used + size;
+                  match read_line_direct flow with
+                  | Ok "" -> chunks ()
+                  | Ok _ -> fail "invalid HTTP chunk terminator"
+                  | Error message -> fail message)))
+    in
+    match chunks () with
+    | result -> result
+    | exception exn ->
+        Secret.destroy body;
+        raise exn
+
+  let read_eof_secret ~hardened ~max_body_bytes flow =
+    let capacity = max 1 max_body_bytes in
+    let body = Secret.create ~hardened capacity in
+    let rec loop used =
+      if used = max_body_bytes then
+        Secret.with_secret ~hardened 1 (fun one ->
+            let count = read_into_secret flow one ~off:0 ~len:1 in
+            if count = 0 then Ok (exact_secret ~hardened body used)
+            else (
+              Secret.destroy body;
+              Error (Printf.sprintf "HTTP body exceeds %d bytes" max_body_bytes)))
+      else
+        let count =
+          read_into_secret flow body ~off:used ~len:(max_body_bytes - used)
+        in
+        if count = 0 then Ok (exact_secret ~hardened body used)
+        else loop (used + count)
+    in
+    match loop 0 with
+    | result -> result
+    | exception exn ->
+        Secret.destroy body;
+        raise exn
+
+  let request_with ?cancel ?(headers = []) ?(secret_headers = []) ?body
+      ?(max_body_bytes = 32 * 1024 * 1024) ?(hardened = false)
+      ~(config : Config.t) ~acquire ~release ~persistent ~write_timeout
+      ~response_header_timeout meth path =
+    let cancelled () =
+      Option.fold ~none:false ~some:Cancel.is_cancelled cancel
+    in
+    if max_body_bytes < 0 then Error "max_body_bytes must not be negative"
+    else if not (valid_request_target path) then
+      Error "request path must be an encoded absolute path without whitespace"
+    else if
+      List.exists
+        (fun (name, value) ->
+          (not (valid_header_name name)) || not (valid_header_value value))
+        headers
+      || List.exists
+           (fun (name, _) -> not (valid_header_name name))
+           secret_headers
+      || not (List.for_all valid_secret_header secret_headers)
+    then Error "request header contains an invalid name or value"
+    else if
+      List.exists (fun (name, _) -> reserved_request_header name) headers
+      || List.exists
+           (fun (name, _) -> reserved_request_header name)
+           secret_headers
+    then
+      Error
+        "Host, Content-Length, Transfer-Encoding, and Connection are managed \
+         by the transport"
+    else if cancelled () then Error "request cancelled"
+    else
+      match acquire () with
+      | Error _ as error -> error
+      | Ok flow ->
+          let fd = flow_fd flow in
+          let reusable = ref false in
+          let unregister =
+            Option.fold ~none:Fun.id
+              ~some:(fun token ->
+                Cancel.on_cancel token (fun () ->
+                    try Unix.shutdown fd Unix.SHUTDOWN_ALL
+                    with Unix.Unix_error _ -> ()))
+              cancel
+          in
+          Fun.protect
+            ~finally:(fun () ->
+              unregister ();
+              release ~reusable:(!reusable && not (cancelled ())) flow)
+            (fun () ->
+              try
+                let host = Option.value ~default:"" (Uri.host config.server) in
+                let host_for_header =
+                  if String.contains host ':' then "[" ^ host ^ "]" else host
+                in
+                let scheme =
+                  Option.value ~default:"https" (Uri.scheme config.server)
+                in
+                let default_port = if scheme = "https" then 443 else 80 in
+                let host_header =
+                  match Uri.port config.server with
+                  | Some port when port <> default_port ->
+                      host_for_header ^ ":" ^ string_of_int port
+                  | _ -> host_for_header
+                in
+                let default_header name value =
+                  if
+                    List.exists
+                      (fun (candidate, _) -> header_is name candidate)
+                      (headers
+                      @ List.map (fun (name, _) -> (name, "")) secret_headers)
+                  then []
+                  else [ (name, value) ]
+                in
+                let request_headers =
+                  [
+                    ("Host", host_header);
+                    ("Connection", if persistent then "keep-alive" else "close");
+                    ("Content-Length", string_of_int (secret_length body));
+                  ]
+                  @ default_header "Accept" "application/json"
+                  @ default_header "Accept-Encoding" "identity"
+                  @ default_header "User-Agent" "ocaml-kube"
+                  @ headers
+                in
+                let output = Buffer.create 512 in
+                Buffer.add_string output
+                  (method_string meth ^ " " ^ request_target config path
+                 ^ " HTTP/1.1\r\n");
+                List.iter
+                  (fun (name, value) ->
+                    Buffer.add_string output (name ^ ": " ^ value ^ "\r\n"))
+                  request_headers;
+                with_phase_timeout ?cancel ~phase:"request write"
+                  ~timeout:write_timeout flow (fun () ->
+                    write flow (Buffer.contents output);
+                    List.iter
+                      (fun (name, value) ->
+                        write flow (name ^ ": ");
+                        Secret.Unsafe.with_string_view value (write flow);
+                        write flow "\r\n")
+                      secret_headers;
+                    write flow "\r\n";
+                    Option.iter
+                      (fun value ->
+                        Secret.Unsafe.with_string_view value (write flow))
+                      body);
+                let* head =
+                  read_header ?cancel ~timeout:response_header_timeout flow
+                in
+                let* protocol, status, reason, response_headers =
+                  parse_head head
+                in
+                let no_body =
+                  (status >= 100 && status < 200)
+                  || status = 204 || status = 304
+                in
+                let* body, body_is_framed =
+                  if no_body then Ok (Secret.create ~hardened 0, true)
+                  else if transfer_is_chunked response_headers then
+                    let* body =
+                      read_chunked_secret ~hardened ~max_body_bytes flow
+                    in
+                    Ok (body, true)
+                  else
+                    match header "content-length" response_headers with
+                    | Some value -> (
+                        match int_of_string_opt value with
+                        | Some length when length >= 0 ->
+                            let* body =
+                              read_content_length ~hardened ~max_body_bytes flow
+                                length
+                            in
+                            Ok (body, true)
+                        | _ -> Error ("invalid Content-Length: " ^ value))
+                    | None ->
+                        let* body =
+                          read_eof_secret ~hardened ~max_body_bytes flow
+                        in
+                        Ok (body, false)
+                in
+                reusable :=
+                  persistent && body_is_framed
+                  && connection_is_persistent protocol response_headers;
+                Ok { status; reason; headers = response_headers; body }
+              with
+              | Unix.Unix_error (code, fn, argument) ->
+                  if cancelled () then Error "request cancelled"
+                  else
+                    Error
+                      (Printf.sprintf "%s(%s): %s" fn argument
+                         (Unix.error_message code))
+              | Tls_unix.Tls_alert _ ->
+                  Error "TLS alert received from API server"
+              | Tls_unix.Tls_failure failure ->
+                  Error
+                    (Format.asprintf "TLS failure: %a" Tls.Engine.pp_failure
+                       failure)
+              | Tls_unix.Closed_by_peer | End_of_file ->
+                  Error "connection closed by peer"
+              | Request_phase_timeout (phase, timeout) ->
+                  Error
+                    (Printf.sprintf "%s timed out after %.3fs" phase timeout)
+              | exn -> Error (Printexc.to_string exn))
+
+  let request ?cancel ?headers ?secret_headers ?body ?max_body_bytes ?hardened
+      transport meth path =
+    request_with ?cancel ?headers ?secret_headers ?body ?max_body_bytes
+      ?hardened ~config:transport.config
+      ~acquire:(fun () -> checkout ?cancel transport)
+      ~release:(checkin transport) ~persistent:true
+      ~write_timeout:transport.write_timeout
+      ~response_header_timeout:transport.response_header_timeout meth path
+
+  let request_once ?cancel ?headers ?secret_headers ?body ?max_body_bytes
+      ?hardened ?(connect_timeout = 10.) ?(write_timeout = 30.)
+      ?(response_header_timeout = 30.) config meth path =
+    if not (valid_timeout connect_timeout) then
+      invalid_arg
+        "Http.Sensitive.request_once: connect_timeout must be finite and \
+         positive";
+    if not (valid_timeout write_timeout) then
+      invalid_arg
+        "Http.Sensitive.request_once: write_timeout must be finite and positive";
+    if not (valid_timeout response_header_timeout) then
+      invalid_arg
+        "Http.Sensitive.request_once: response_header_timeout must be finite \
+         and positive";
+    request_with ?cancel ?headers ?secret_headers ?body ?max_body_bytes
+      ?hardened ~config
+      ~acquire:(fun () -> open_flow ?cancel ~connect_timeout config)
+      ~release:(fun ~reusable:_ flow -> close_flow flow)
+      ~persistent:false ~write_timeout ~response_header_timeout meth path
+
+  module For_testing = struct
+    let parse_response_head = parse_head
+  end
+end
 
 type upgrade_result =
   | Upgraded of { response : response; connection : Upgrade.t }

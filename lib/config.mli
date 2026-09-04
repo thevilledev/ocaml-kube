@@ -74,6 +74,22 @@ val authorization_header : t -> (string option, string) result
 (** Resolve the current Authorization value, refreshing token files and expiring
     exec-plugin credentials when needed. *)
 
+type credential_origin = [ `Protected | `Heap ]
+(** Whether the credential bytes originated outside the OCaml heap. Inline,
+    basic, and exec-plugin credentials are necessarily [`Heap]; token files are
+    read directly into protected memory and are [`Protected]. *)
+
+val with_authorization_secret :
+  ?hardened:bool ->
+  t ->
+  (origin:credential_origin -> Secret.t option -> 'a) ->
+  ('a, string) result
+(** Resolve the current Authorization value into a scoped [Secret.t]. The value
+    is destroyed when the callback returns or raises. Token files are read with
+    [Secret_unix] without first creating an OCaml string. Other credential kinds
+    remain available for compatibility but are marked as heap-originating so
+    security-sensitive callers can reject them. *)
+
 val impersonation_headers : t -> (string * string) list
 (** Return the validated Kubernetes impersonation headers for this config. *)
 

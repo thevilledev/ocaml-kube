@@ -23,6 +23,7 @@
   mirage-crypto-rng
   ppxlib
   ptime
+  (secret (>= 0.1.2))
   tls
   uri
   x509

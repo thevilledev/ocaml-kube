@@ -49,3 +49,8 @@
  (name test_operator_ergonomics)
  (modules test_operator_ergonomics)
  (libraries kube kube.crd kube.test alcotest yojson uri))
+
+(test
+ (name test_sensitive)
+ (modules test_sensitive)
+ (libraries kube alcotest yojson uri))

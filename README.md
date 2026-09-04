@@ -53,6 +53,7 @@ and the local integration example.
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Build, configuration, and first request |
 | [Client APIs](docs/client.md) | Typed, dynamic, subresource, and streaming clients |
+| [Sensitive transport](docs/sensitive-transport.md) | Protected credentials, bodies, Secret writes, and TokenRequest |
 | [Controller runtime](docs/controllers.md) | Reconciliation, caching, watches, and leadership |
 | [Operator patterns](docs/operator-patterns.md) | Owned children, apply, retries, conditions, metrics, and tests |
 | [Operations](docs/operations.md) | Logging, health, metrics, diagnostics, and events |

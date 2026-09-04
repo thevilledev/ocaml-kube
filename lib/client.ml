@@ -18,28 +18,42 @@ module Transport = struct
     max_error_body_bytes : int option;
   }
 
+  type sensitive_request = {
+    cancel : Cancel.t option;
+    meth : Http.meth;
+    target : string;
+    headers : (string * string) list;
+    secret_headers : (string * Secret.t) list;
+    body : Secret.t option;
+    max_body_bytes : int option;
+    hardened : bool;
+  }
+
   type t = {
     execute_fn : request -> (Http.response, string) result;
     websocket_fn :
       (websocket_request -> (Websocket.t, Websocket.connect_error) result)
       option;
+    sensitive_fn :
+      (sensitive_request -> (Http.Sensitive.response, string) result) option;
     close_fn : unit -> unit;
     closed_error : string;
     closed : bool Atomic.t;
   }
 
-  let make_with_closed_error ?(close = fun () -> ()) ?websocket ~closed_error
-      execute_fn =
+  let make_with_closed_error ?(close = fun () -> ()) ?websocket ?sensitive
+      ~closed_error execute_fn =
     {
       execute_fn;
       websocket_fn = websocket;
+      sensitive_fn = sensitive;
       close_fn = close;
       closed_error;
       closed = Atomic.make false;
     }
 
-  let make ?close ?websocket execute_fn =
-    make_with_closed_error ?close ?websocket
+  let make ?close ?websocket ?sensitive execute_fn =
+    make_with_closed_error ?close ?websocket ?sensitive
       ~closed_error:"client transport is closed" execute_fn
 
   let execute transport (request : request) =
@@ -79,6 +93,22 @@ module Transport = struct
               (Websocket.Transport
                  ("client transport raised during WebSocket upgrade: "
                 ^ Printexc.to_string exn)))
+
+  let execute_sensitive transport (request : sensitive_request) =
+    if Atomic.get transport.closed then Error transport.closed_error
+    else if Option.fold ~none:false ~some:Cancel.is_cancelled request.cancel
+    then Error "request cancelled"
+    else if Option.value ~default:(32 * 1024 * 1024) request.max_body_bytes < 0
+    then Error "max_body_bytes must not be negative"
+    else
+      match transport.sensitive_fn with
+      | None -> Error "client transport does not support protected requests"
+      | Some execute -> (
+          try execute request
+          with exn ->
+            Error
+              ("client transport raised during protected request: "
+             ^ Printexc.to_string exn))
 
   let close transport =
     if Atomic.compare_and_set transport.closed false true then
@@ -321,7 +351,7 @@ let create ?max_idle_connections ?connect_timeout ?write_timeout
     List.iter Websocket.close active;
     Http.close http
   in
-  let open_websocket request =
+  let open_websocket (request : Transport.websocket_request) =
     match
       Websocket.connect ?cancel:request.Transport.cancel
         ~headers:request.headers ~protocols:request.protocols
@@ -343,7 +373,13 @@ let create ?max_idle_connections ?connect_timeout ?write_timeout
   in
   let transport =
     Transport.make_with_closed_error ~closed_error:"HTTP transport is closed"
-      ~close:close_native_transport ~websocket:open_websocket (fun request ->
+      ~close:close_native_transport ~websocket:open_websocket
+      ~sensitive:(fun request ->
+        Http.Sensitive.request ?cancel:request.Transport.cancel
+          ~headers:request.headers ~secret_headers:request.secret_headers
+          ?body:request.body ?max_body_bytes:request.max_body_bytes
+          ~hardened:request.hardened http request.meth request.target)
+      (fun request ->
         Http.request ?cancel:request.cancel ~headers:request.headers
           ?body:request.body ?on_chunk:request.on_chunk
           ?max_body_bytes:request.max_body_bytes http request.meth
@@ -660,6 +696,493 @@ let raw ?cancel ?headers ?body ?on_chunk ?max_body_bytes client meth path =
           :: outcome_fields)
       "Kubernetes API request completed";
     result
+
+module Sensitive = struct
+  type write_result = { resource_version : string option }
+
+  type secret_manifest = {
+    namespace : string;
+    name : string;
+    type_ : string option;
+    immutable : bool option;
+    labels : (string * string) list;
+    annotations : (string * string) list;
+    owner_references : Core.owner_reference list;
+    data : (string * Secret.t) list;
+  }
+
+  type segment = Public of string | Base64 of Secret.t
+
+  let base64_length length =
+    if length > (max_int - 2) / 4 * 3 then None else Some ((length + 2) / 3 * 4)
+
+  let segment_length = function
+    | Public value -> Some (String.length value)
+    | Base64 value -> base64_length (Secret.length value)
+
+  let total_length segments =
+    List.fold_left
+      (fun total segment ->
+        match (total, segment_length segment) with
+        | Some total, Some length when length <= max_int - total ->
+            Some (total + length)
+        | _ -> None)
+      (Some 0) segments
+
+  let base64_alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+  let write_base64 source output offset =
+    Secret.Unsafe.with_string_view source (fun input ->
+        let length = String.length input in
+        let rec loop input_offset output_offset =
+          if input_offset + 3 <= length then (
+            let a = Char.code input.[input_offset] in
+            let b = Char.code input.[input_offset + 1] in
+            let c = Char.code input.[input_offset + 2] in
+            Bytes.set output output_offset base64_alphabet.[a lsr 2];
+            Bytes.set output (output_offset + 1)
+              base64_alphabet.[((a land 0x03) lsl 4) lor (b lsr 4)];
+            Bytes.set output (output_offset + 2)
+              base64_alphabet.[((b land 0x0f) lsl 2) lor (c lsr 6)];
+            Bytes.set output (output_offset + 3) base64_alphabet.[c land 0x3f];
+            loop (input_offset + 3) (output_offset + 4))
+          else if input_offset < length then (
+            let a = Char.code input.[input_offset] in
+            Bytes.set output output_offset base64_alphabet.[a lsr 2];
+            if input_offset + 1 < length then (
+              let b = Char.code input.[input_offset + 1] in
+              Bytes.set output (output_offset + 1)
+                base64_alphabet.[((a land 0x03) lsl 4) lor (b lsr 4)];
+              Bytes.set output (output_offset + 2)
+                base64_alphabet.[(b land 0x0f) lsl 2];
+              Bytes.set output (output_offset + 3) '=')
+            else (
+              Bytes.set output (output_offset + 1)
+                base64_alphabet.[(a land 0x03) lsl 4];
+              Bytes.set output (output_offset + 2) '=';
+              Bytes.set output (output_offset + 3) '=');
+            output_offset + 4)
+          else output_offset
+        in
+        loop 0 offset)
+
+  let with_segments ?(hardened = false) segments fn =
+    match total_length segments with
+    | None -> Error (Invalid_request "protected JSON body is too large")
+    | Some length when length > 1024 * 1024 ->
+        Error
+          (Invalid_request
+             "protected Kubernetes Secret body exceeds the 1 MiB limit")
+    | Some length ->
+        Secret.with_secret ~hardened length (fun output ->
+            Secret.Unsafe.with_bytes_view output (fun bytes ->
+                ignore
+                  (List.fold_left
+                     (fun offset -> function
+                       | Public value ->
+                           Bytes.blit_string value 0 bytes offset
+                             (String.length value);
+                           offset + String.length value
+                       | Base64 value -> write_base64 value bytes offset)
+                     0 segments));
+            Ok (fn output))
+
+  let safe_reason meth status =
+    match (meth, status) with
+    | `POST, 409 -> Some "AlreadyExists"
+    | _, status -> (
+        match status with
+        | 400 -> Some "BadRequest"
+        | 401 -> Some "Unauthorized"
+        | 403 -> Some "Forbidden"
+        | 404 -> Some "NotFound"
+        | 409 -> Some "Conflict"
+        | 410 -> Some "Gone"
+        | 413 -> Some "RequestEntityTooLarge"
+        | 415 -> Some "UnsupportedMediaType"
+        | 422 -> Some "Invalid"
+        | 429 -> Some "TooManyRequests"
+        | 500 -> Some "InternalError"
+        | 503 -> Some "ServiceUnavailable"
+        | 504 -> Some "Timeout"
+        | _ -> None)
+
+  let api_error_of_sensitive_response meth response =
+    let retry_after_seconds =
+      retry_after_of_headers response.Http.Sensitive.headers
+    in
+    {
+      code = response.status;
+      reason = safe_reason meth response.status;
+      message =
+        (if response.reason = "" then
+           Printf.sprintf "Kubernetes API returned HTTP %d" response.status
+         else response.reason);
+      retry_after_seconds;
+      body = None;
+    }
+
+  let raw_unlogged ?cancel ?(headers = []) ?(secret_headers = []) ?body
+      ?max_body_bytes ?(hardened = false) ?(strict_credentials = true) client
+      meth path =
+    let* () =
+      if strict_credentials && client.config.tls.client_key_pem <> None then
+        Error
+          (Invalid_request
+             "strict protected transport rejects heap-originating client keys")
+      else if
+        strict_credentials
+        && Option.fold ~none:false
+             ~some:(fun proxy -> Uri.userinfo proxy <> None)
+             client.config.proxy_url
+      then
+        Error
+          (Invalid_request
+             "strict protected transport rejects heap-originating proxy \
+              credentials")
+      else if Rate_limiter.acquire ?cancel client.rate_limiter then Ok ()
+      else Error (Transport "request cancelled while waiting for rate limiter")
+    in
+    let headers =
+      if
+        List.exists
+          (fun (name, _) -> String.lowercase_ascii name = "impersonate-user")
+          headers
+      then headers
+      else Config.impersonation_headers client.config @ headers
+    in
+    let perform ~origin authorization =
+      if strict_credentials && origin = `Heap then
+        Error
+          (Invalid_request
+             "strict protected transport rejects heap-originating credentials")
+      else
+        let secret_headers =
+          match authorization with
+          | None -> secret_headers
+          | Some value -> ("Authorization", value) :: secret_headers
+        in
+        match
+          Transport.execute_sensitive client.transport
+            {
+              cancel;
+              meth;
+              target = path;
+              headers;
+              secret_headers;
+              body;
+              max_body_bytes;
+              hardened;
+            }
+        with
+        | Error message -> Error (Transport message)
+        | Ok response when response.status >= 200 && response.status < 300 ->
+            Ok response
+        | Ok response ->
+            let error = api_error_of_sensitive_response meth response in
+            Secret.destroy response.body;
+            Error (Api error)
+    in
+    match
+      Config.with_authorization_secret ~hardened client.config (fun ~origin ->
+          perform ~origin)
+    with
+    | Error message -> Error (Transport message)
+    | Ok result -> result
+
+  let raw ?cancel ?headers ?secret_headers ?body ?max_body_bytes ?hardened
+      ?strict_credentials client meth path =
+    if not (Log.enabled client.logger Log.Debug) then
+      raw_unlogged ?cancel ?headers ?secret_headers ?body ?max_body_bytes
+        ?hardened ?strict_credentials client meth path
+    else
+      let request_id = Atomic.fetch_and_add client.next_request_id 1 in
+      let started = Clock.now () in
+      let common =
+        [
+          ("request_id", Log.Int request_id);
+          ("method", Log.String (method_string meth));
+          ("path", Log.String (target_path path));
+        ]
+      in
+      Log.debug client.logger ~fields:common
+        "protected Kubernetes API request started";
+      let result =
+        raw_unlogged ?cancel ?headers ?secret_headers ?body ?max_body_bytes
+          ?hardened ?strict_credentials client meth path
+      in
+      let fields =
+        match result with
+        | Ok response ->
+            [
+              ("result", Log.String "ok");
+              ("status_code", Log.Int response.Http.Sensitive.status);
+            ]
+        | Error (Api error) ->
+            [
+              ("result", Log.String "api_error");
+              ("status_code", Log.Int error.code);
+            ]
+        | Error (Transport _) -> [ ("result", Log.String "transport_error") ]
+        | Error (Decode _) -> [ ("result", Log.String "decode_error") ]
+        | Error (Invalid_request _) ->
+            [ ("result", Log.String "invalid_request") ]
+      in
+      Log.debug client.logger
+        ~fields:
+          (common
+          @ (("duration_seconds", Log.Float (Clock.elapsed started)) :: fields)
+          )
+        "protected Kubernetes API request completed";
+      result
+
+  let quote value = Yojson.Safe.to_string (`String value)
+
+  let data_segments data =
+    let rec loop first accumulator = function
+      | [] -> List.rev (Public "}" :: accumulator)
+      | (key, value) :: rest ->
+          let prefix = (if first then "" else ",") ^ quote key ^ ":\"" in
+          loop false
+            (Public "\"" :: Base64 value :: Public prefix :: accumulator)
+            rest
+    in
+    loop true [ Public "{" ] data
+
+  let duplicate_key values =
+    let sorted = List.sort String.compare (List.map fst values) in
+    let rec loop = function
+      | first :: (second :: _ as rest) ->
+          if first = second then Some first else loop rest
+      | [] | [ _ ] -> None
+    in
+    loop sorted
+
+  let find_json_string_field body field =
+    Secret.Unsafe.with_string_view body (fun input ->
+        let length = String.length input in
+        let field_length = String.length field in
+        let is_space = function
+          | ' ' | '\t' | '\r' | '\n' -> true
+          | _ -> false
+        in
+        let rec skip_space offset =
+          if offset < length && is_space input.[offset] then
+            skip_space (offset + 1)
+          else offset
+        in
+        let field_at offset =
+          let rec equal index =
+            if index = field_length then true
+            else if input.[offset + index] <> field.[index] then false
+            else equal (index + 1)
+          in
+          offset + field_length < length
+          && equal 0
+          && input.[offset + field_length] = '"'
+        in
+        let rec value_end offset =
+          if offset >= length then None
+          else
+            match input.[offset] with
+            | '"' -> Some offset
+            | '\\' -> None
+            | _ -> value_end (offset + 1)
+        in
+        let rec scan offset =
+          if offset >= length then None
+          else if input.[offset] <> '"' then scan (offset + 1)
+          else
+            let key_start = offset + 1 in
+            if not (field_at key_start) then scan key_start
+            else
+              let after_key = skip_space (key_start + field_length + 1) in
+              if after_key >= length || input.[after_key] <> ':' then
+                scan key_start
+              else
+                let value_start = skip_space (after_key + 1) in
+                if value_start >= length || input.[value_start] <> '"' then
+                  scan key_start
+                else
+                  let start = value_start + 1 in
+                  Option.map
+                    (fun ending -> (start, ending - start))
+                    (value_end start)
+        in
+        scan 0)
+
+  let consume_write_response response =
+    Fun.protect
+      ~finally:(fun () -> Secret.destroy response.Http.Sensitive.body)
+      (fun () ->
+        let resource_version =
+          match find_json_string_field response.body "resourceVersion" with
+          | None -> None
+          | Some (offset, length) ->
+              Secret.Unsafe.with_string_view response.body (fun body ->
+                  Some (String.sub body offset length))
+        in
+        Ok { resource_version })
+
+  let create_secret ?cancel ?(hardened = false) client manifest =
+    match duplicate_key manifest.data with
+    | Some key -> Error (Invalid_request ("duplicate Secret data key " ^ key))
+    | None ->
+        let metadata =
+          `Assoc
+            ([ ("name", `String manifest.name) ]
+            @ (if manifest.labels = [] then []
+               else
+                 [
+                   ( "labels",
+                     `Assoc
+                       (List.map
+                          (fun (key, value) -> (key, `String value))
+                          manifest.labels) );
+                 ])
+            @ (if manifest.annotations = [] then []
+               else
+                 [
+                   ( "annotations",
+                     `Assoc
+                       (List.map
+                          (fun (key, value) -> (key, `String value))
+                          manifest.annotations) );
+                 ])
+            @
+            if manifest.owner_references = [] then []
+            else
+              [
+                ( "ownerReferences",
+                  `List
+                    (List.map Core.owner_reference_to_json
+                       manifest.owner_references) );
+              ])
+        in
+        let prefix =
+          "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"metadata\":"
+          ^ Yojson.Safe.to_string metadata
+          ^ Option.fold ~none:""
+              ~some:(fun value -> ",\"type\":" ^ quote value)
+              manifest.type_
+          ^ Option.fold ~none:""
+              ~some:(fun value ->
+                ",\"immutable\":" ^ if value then "true" else "false")
+              manifest.immutable
+          ^ ",\"data\":"
+        in
+        let segments =
+          (Public prefix :: data_segments manifest.data) @ [ Public "}" ]
+        in
+        with_segments ~hardened segments (fun body ->
+            let path =
+              "/api/v1/namespaces/"
+              ^ Uri.pct_encode ~component:`Path manifest.namespace
+              ^ "/secrets"
+            in
+            raw ?cancel
+              ~headers:[ ("Content-Type", "application/json") ]
+              ~body ~max_body_bytes:(2 * 1024 * 1024) ~hardened client `POST
+              path
+            |> fun result -> Result.bind result consume_write_response)
+        |> fun result -> Result.bind result Fun.id
+
+  let json_pointer_segment value =
+    let output = Buffer.create (String.length value) in
+    String.iter
+      (function
+        | '~' -> Buffer.add_string output "~0"
+        | '/' -> Buffer.add_string output "~1"
+        | character -> Buffer.add_char output character)
+      value;
+    Buffer.contents output
+
+  let patch_secret ?cancel ?(hardened = false) client ~namespace ~name
+      ~source_annotation:(annotation, source_uid) ~data =
+    match duplicate_key data with
+    | Some key -> Error (Invalid_request ("duplicate Secret data key " ^ key))
+    | None ->
+        let prefix =
+          "[{\"op\":\"test\",\"path\":"
+          ^ quote ("/metadata/annotations/" ^ json_pointer_segment annotation)
+          ^ ",\"value\":" ^ quote source_uid
+          ^ "},{\"op\":\"replace\",\"path\":\"/data\",\"value\":"
+        in
+        let segments =
+          (Public prefix :: data_segments data) @ [ Public "}]" ]
+        in
+        with_segments ~hardened segments (fun body ->
+            let path =
+              "/api/v1/namespaces/"
+              ^ Uri.pct_encode ~component:`Path namespace
+              ^ "/secrets/"
+              ^ Uri.pct_encode ~component:`Path name
+            in
+            raw ?cancel
+              ~headers:[ ("Content-Type", "application/json-patch+json") ]
+              ~body ~max_body_bytes:(2 * 1024 * 1024) ~hardened client `PATCH
+              path
+            |> fun result -> Result.bind result consume_write_response)
+        |> fun result -> Result.bind result Fun.id
+
+  let create_service_account_token ?cancel ?(hardened = false) ?(audiences = [])
+      ?expiration_seconds client ~namespace ~service_account =
+    let spec =
+      `Assoc
+        ((if audiences = [] then []
+          else
+            [
+              ( "audiences",
+                `List (List.map (fun value -> `String value) audiences) );
+            ])
+        @
+        match expiration_seconds with
+        | None -> []
+        | Some value ->
+            [ ("expirationSeconds", `Intlit (Int64.to_string value)) ])
+    in
+    let request =
+      `Assoc
+        [
+          ("apiVersion", `String "authentication.k8s.io/v1");
+          ("kind", `String "TokenRequest");
+          ("spec", spec);
+        ]
+      |> Yojson.Safe.to_string |> Secret.of_string ~hardened
+    in
+    Fun.protect
+      ~finally:(fun () -> Secret.destroy request)
+      (fun () ->
+        let path =
+          "/api/v1/namespaces/"
+          ^ Uri.pct_encode ~component:`Path namespace
+          ^ "/serviceaccounts/"
+          ^ Uri.pct_encode ~component:`Path service_account
+          ^ "/token"
+        in
+        match
+          raw ?cancel
+            ~headers:[ ("Content-Type", "application/json") ]
+            ~body:request ~max_body_bytes:(1024 * 1024) ~hardened client `POST
+            path
+        with
+        | Error _ as error -> error
+        | Ok response ->
+            Fun.protect
+              ~finally:(fun () -> Secret.destroy response.body)
+              (fun () ->
+                match find_json_string_field response.body "token" with
+                | Some (offset, length) when length > 0 ->
+                    Ok
+                      (Secret.sub ~hardened response.body ~off:offset
+                         ~len:length)
+                | Some _ | None ->
+                    Error
+                      (Decode
+                         "TokenRequest response is missing an unescaped status \
+                          token")))
+end
 
 let websocket ?cancel ?headers ?protocols ?max_message_bytes
     ?max_error_body_bytes client path =

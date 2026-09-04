@@ -114,8 +114,7 @@ let validate (options : options) =
     | Error _ as error -> error
     | Ok () -> (
         match
-          named "--leader-election-namespace"
-            options.leader_election_namespace
+          named "--leader-election-namespace" options.leader_election_namespace
         with
         | Error _ as error -> error
         | Ok () -> named "--identity" options.identity)
@@ -131,8 +130,7 @@ let run_components base_context components cancel =
   try
     List.iter (Manager.add manager) components;
     Result.map_error manager_error (Manager.run manager)
-  with exn ->
-    Error ("component manager failed: " ^ Printexc.to_string exn)
+  with exn -> Error ("component manager failed: " ^ Printexc.to_string exn)
 
 let run_with_client ?cancel ?health ?metrics options client ~components =
   match validate options with
@@ -153,6 +151,10 @@ let run_with_client ?cancel ?health ?metrics options client ~components =
           identity;
         }
       in
+      let component_health =
+        if options.leader_elect then Health.create () else health
+      in
+      let component_context = { base_context with health = component_health } in
       let manager = Manager.create ~cancel client in
       (if options.diagnostics_port <> 0 then
          let diagnostics =
@@ -161,7 +163,7 @@ let run_with_client ?cancel ?health ?metrics options client ~components =
          in
          Manager.add manager (Diagnostics.component diagnostics));
       let built =
-        try Ok (components base_context)
+        try Ok (components component_context)
         with exn ->
           Error ("component construction failed: " ^ Printexc.to_string exn)
       in
@@ -172,11 +174,26 @@ let run_with_client ?cancel ?health ?metrics options client ~components =
             List.iter (Manager.add manager) components;
             Ok ()
         | Ok components ->
-            let leader_ready = Atomic.make false in
+            let election_phase = Atomic.make `Starting in
+            let nested_check run =
+              match run component_health with
+              | Ok () -> Ok ()
+              | Error failures ->
+                  Error (Format.asprintf "%a" Health.pp_failures failures)
+            in
             let _readiness =
               Health.add_readiness health ~name:"leader-election" (fun () ->
-                  if Atomic.get leader_ready then Ok ()
-                  else Error "not the active leader")
+                  match Atomic.get election_phase with
+                  | `Waiting -> Ok ()
+                  | `Leading -> nested_check Health.readiness
+                  | `Starting -> Error "leader election has not started"
+                  | `Stopped -> Error "leader election has stopped")
+            in
+            let _liveness =
+              Health.add_liveness health ~name:"leader-components" (fun () ->
+                  match Atomic.get election_phase with
+                  | `Leading -> nested_check Health.liveness
+                  | `Starting | `Waiting | `Stopped -> Ok ())
             in
             let leader =
               Metrics.Gauge.create ~registry:metrics ~name:"ocaml_kube_leader"
@@ -200,11 +217,14 @@ let run_with_client ?cancel ?health ?metrics options client ~components =
             let component =
               Manager.component ~name:"leader-election" (fun ~client ~cancel ->
                   let on_phase = function
-                    | Leader_election.Waiting | Leader_election.Stopped ->
-                        Atomic.set leader_ready false;
+                    | Leader_election.Waiting ->
+                        Atomic.set election_phase `Waiting;
+                        Metrics.Gauge.set leader 0.
+                    | Leader_election.Stopped ->
+                        Atomic.set election_phase `Stopped;
                         Metrics.Gauge.set leader 0.
                     | Leader_election.Leading ->
-                        Atomic.set leader_ready true;
+                        Atomic.set election_phase `Leading;
                         Metrics.Gauge.set leader 1.;
                         Metrics.Counter.inc transitions
                   in

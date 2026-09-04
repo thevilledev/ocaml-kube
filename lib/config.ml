@@ -42,6 +42,8 @@ type t = {
   impersonation : impersonation option;
 }
 
+type credential_origin = [ `Protected | `Heap ]
+
 let default_tls =
   {
     ca_pem = None;
@@ -780,6 +782,78 @@ let authorization_header config =
   | Exec exec ->
       let* token = exec_token exec in
       Ok (Some ("Bearer " ^ token))
+
+let whitespace = function
+  | ' ' | '\t' | '\r' | '\n' -> true
+  | _ -> false
+
+let with_bearer_secret ?(hardened = false) token fn =
+  let first, last =
+    Secret.Unsafe.with_string_view token (fun value ->
+        let first = ref 0 in
+        let last = ref (String.length value) in
+        while !first < !last && whitespace value.[!first] do
+          incr first
+        done;
+        while !last > !first && whitespace value.[!last - 1] do
+          decr last
+        done;
+        (!first, !last))
+  in
+  if first = last then Error "bearer token is empty"
+  else
+    let authorization = Secret.create ~hardened (7 + last - first) in
+    Fun.protect
+      ~finally:(fun () -> Secret.destroy authorization)
+      (fun () ->
+        Secret.blit_from_string "Bearer " ~src_off:0 authorization ~dst_off:0
+          ~len:7;
+        Secret.blit ~src:token ~src_off:first ~dst:authorization ~dst_off:7
+          ~len:(last - first);
+        Ok (fn authorization))
+
+let with_heap_authorization ?(hardened = false) value fn =
+  let authorization = Secret.of_string ~hardened value in
+  Fun.protect
+    ~finally:(fun () -> Secret.destroy authorization)
+    (fun () -> Ok (fn authorization))
+
+let with_authorization_secret ?(hardened = false) config fn =
+  match config.credential with
+  | Anonymous -> Ok (fn ~origin:`Protected None)
+  | Token_file path -> (
+      try
+        let token = Secret_unix.read_file ~hardened ~max:(1024 * 1024) path in
+        Fun.protect
+          ~finally:(fun () -> Secret.destroy token)
+          (fun () ->
+            with_bearer_secret ~hardened token (fun authorization ->
+                fn ~origin:`Protected (Some authorization)))
+      with
+      | Sys_error message -> Error message
+      | Unix.Unix_error (code, name, argument) ->
+          Error
+            (Printf.sprintf "%s(%s): %s" name argument (Unix.error_message code))
+      )
+  | Static_token token ->
+      let token_secret = Secret.of_string ~hardened token in
+      Fun.protect
+        ~finally:(fun () -> Secret.destroy token_secret)
+        (fun () ->
+          with_bearer_secret ~hardened token_secret (fun authorization ->
+              fn ~origin:`Heap (Some authorization)))
+  | Basic { username; password } ->
+      let value = "Basic " ^ Base64.encode_string (username ^ ":" ^ password) in
+      with_heap_authorization ~hardened value (fun authorization ->
+          fn ~origin:`Heap (Some authorization))
+  | Exec exec ->
+      let* token = exec_token exec in
+      let token_secret = Secret.of_string ~hardened token in
+      Fun.protect
+        ~finally:(fun () -> Secret.destroy token_secret)
+        (fun () ->
+          with_bearer_secret ~hardened token_secret (fun authorization ->
+              fn ~origin:`Heap (Some authorization)))
 
 let header_key_escape key =
   let legal = function
