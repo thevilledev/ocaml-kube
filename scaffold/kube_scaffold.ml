@@ -721,7 +721,20 @@ module Controller = K.Controller.Make (Custom_resource)
 
 let finalizer = %S
 
-let reconcile client (request : Controller.request) =
+type instrumentation = {
+  applied : K.Metrics.Counter.t;
+  cleaned : K.Metrics.Counter.t;
+}
+
+let instrumentation registry =
+  let outcome value =
+    K.Metrics.Counter.create ~registry ~name:"operator_reconciles_total"
+      ~help:"Application-specific reconciliation outcomes."
+      ~labels:[ ("outcome", value) ] ()
+  in
+  { applied = outcome "applied"; cleaned = outcome "cleaned" }
+
+let reconcile metrics client (request : Controller.request) =
   match request.resource with
   | None -> Ok K.Controller.Done
   | Some resource ->
@@ -729,172 +742,36 @@ let reconcile client (request : Controller.request) =
         | Finalizer.Cleanup resource ->
             ignore resource;
             (* TODO: delete external or dependent state. *)
+            K.Metrics.Counter.inc metrics.cleaned;
             Ok K.Controller.Done
         | Finalizer.Apply resource ->
             ignore resource;
             (* TODO: converge desired state and patch status with
-               [Api.patch_status ~cancel:request.cancel]. *)
+               [Api.patch_status ~cancel:request.cancel]. Use
+               [K.Reconcile.Make] to Server-Side Apply owned children. *)
+            K.Metrics.Counter.inc metrics.applied;
             Ok K.Controller.Done)
 
 let () =
-  let kubeconfig = ref None in
-  let context = ref None in
-  let namespace = ref None in
-  let workers = ref 2 in
-  let leader_elect = ref false in
-  let leader_election_name = ref %S in
-  let leader_election_namespace = ref None in
-  let identity = ref None in
-  let diagnostics_address = ref "127.0.0.1" in
-  let diagnostics_port = ref 0 in
-  let set target value = target := Some value in
-  let arguments =
-    [
-      ("--kubeconfig", Arg.String (set kubeconfig), "PATH Kubeconfig path");
-      ("--context", Arg.String (set context), "NAME Kubeconfig context");
-      ( "--namespace",
-        Arg.String (set namespace),
-        "NAME Namespace to watch (all by default)" );
-      ("--workers", Arg.Set_int workers, "N Concurrent reconciliations");
-      ( "--leader-elect",
-        Arg.Set leader_elect,
-        "Enable coordination.k8s.io Lease leader election" );
-      ( "--leader-election-name",
-        Arg.Set_string leader_election_name,
-        "NAME Leader-election Lease name" );
-      ( "--leader-election-namespace",
-        Arg.String (set leader_election_namespace),
-        "NAME Leader-election Lease namespace" );
-      ( "--identity",
-        Arg.String (set identity),
-        "ID Unique leader-election candidate identity" );
-      ( "--diagnostics-address",
-        Arg.Set_string diagnostics_address,
-        "IP Diagnostics bind address" );
-      ( "--diagnostics-port",
-        Arg.Set_int diagnostics_port,
-        "PORT Diagnostics port (0 disables the server)" );
-    ]
+  let options =
+    K.Operator.Options.parse ~name:%S ~leader_election_name:%S ()
   in
-  Arg.parse arguments
-    (fun value -> raise (Arg.Bad ("unexpected argument: " ^ value)))
-    %S;
-  if !diagnostics_port < 0 || !diagnostics_port > 65535 then
-    raise (Arg.Bad "--diagnostics-port must be between 0 and 65535");
-  let loaded =
-    match !kubeconfig with
-    | Some path -> K.Config.load_kubeconfig ?context:!context path
-    | None -> K.Config.load_default ?context:!context ()
-  in
-  match loaded with
+  match
+    K.Operator.run options ~components:(fun context ->
+        let metrics = instrumentation context.metrics in
+        [
+          Controller.component ?namespace:context.namespace
+            ~workers:context.workers ~metrics:context.metrics
+            ~health:context.health ~reconcile:(reconcile metrics) ();
+        ])
+  with
+  | Ok () -> ()
   | Error message ->
-      Printf.eprintf "configuration error: %%s\n%%!" message;
-      exit 2
-  | Ok config -> (
-      let cancel = K.Cancel.create () in
-      let stop _ = K.Cancel.cancel cancel in
-      Sys.set_signal Sys.sigint (Sys.Signal_handle stop);
-      Sys.set_signal Sys.sigterm (Sys.Signal_handle stop);
-      let client = K.Client.create ~logger:(K.Log.stderr ()) config in
-      let result =
-        Fun.protect
-          ~finally:(fun () -> K.Client.close client)
-          (fun () ->
-            let process_identity =
-              Option.value
-                ~default:
-                  (Printf.sprintf "%%s-%%d" (Unix.gethostname ()) (Unix.getpid ()))
-                !identity
-            in
-            let manager = K.Manager.create ~cancel client in
-            let health = K.Health.create () in
-            let metrics = K.Metrics.create () in
-            let controller =
-              Controller.component ?namespace:!namespace ~workers:!workers
-                ~metrics ~health ~reconcile ()
-            in
-            let run_controller_manager manager_cancel =
-              let manager = K.Manager.create ~cancel:manager_cancel client in
-              K.Manager.add manager controller;
-              K.Manager.run manager
-            in
-            (if !diagnostics_port <> 0 then
-               let diagnostics =
-                 K.Diagnostics.create ~address:!diagnostics_address
-                   ~port:!diagnostics_port ~health ~metrics ()
-               in
-               K.Manager.add manager (K.Diagnostics.component diagnostics));
-            (if not !leader_elect then
-               K.Manager.add manager controller
-             else
-               let identity = process_identity in
-               let lease_namespace =
-                 Option.value
-                   ~default:(Option.value ~default:"default" config.namespace)
-                   !leader_election_namespace
-               in
-               let election =
-                 K.Leader_election.default ~namespace:lease_namespace
-                   ~name:!leader_election_name ~identity
-               in
-               let leader =
-                 K.Metrics.Gauge.create ~registry:metrics
-                   ~name:"ocaml_kube_leader"
-                   ~help:"Whether this replica is leader." ()
-               in
-               let transitions =
-                 K.Metrics.Counter.create ~registry:metrics
-                   ~name:"ocaml_kube_leader_transitions_total"
-                   ~help:"Leadership transitions observed by this replica." ()
-               in
-               let leader_component =
-                 K.Manager.component ~name:"leader-election"
-                   (fun ~client ~cancel ->
-                     let on_phase = function
-                       | K.Leader_election.Waiting ->
-                           K.Metrics.Gauge.set leader 0.;
-                           Printf.printf "waiting for leadership as %%s\n%%!"
-                             identity
-                       | K.Leader_election.Leading ->
-                           K.Metrics.Gauge.set leader 1.;
-                           K.Metrics.Counter.inc transitions;
-                           Printf.printf "acquired leadership as %%s\n%%!"
-                             identity
-                       | K.Leader_election.Stopped ->
-                           K.Metrics.Gauge.set leader 0.;
-                           Printf.printf "stopped leader election as %%s\n%%!"
-                             identity
-                     in
-                     match
-                       K.Leader_election.run ~cancel ~on_phase client election
-                         run_controller_manager
-                     with
-                     | Ok K.Leader_election.Cancelled_before_leadership -> Ok ()
-                     | Ok (K.Leader_election.Finished (Ok ())) -> Ok ()
-                     | Ok (K.Leader_election.Finished (Error error)) ->
-                         Error
-                           (K.Client.Transport
-                              (Format.asprintf "%%a" K.Manager.pp_error error))
-                     | Error error ->
-                         Error
-                           (K.Client.Transport
-                              (Format.asprintf "%%a" K.Leader_election.pp_error
-                                 error)))
-               in
-               K.Manager.add manager leader_component);
-            Result.map_error
-              (Format.asprintf "%%a" K.Manager.pp_error)
-              (K.Manager.run manager))
-      in
-      (match result with
-      | Ok () -> ()
-      | Error message ->
-          Format.eprintf "controller failed: %%s@." message;
-          exit 1))
+      Format.eprintf "operator failed: %%s@." message;
+      exit 1
 |}
     (definition.plural ^ "." ^ definition.group ^ "/finalizer")
-    project_name
-    (project_name ^ " [OPTIONS]")
+    project_name project_name
 
 let render_dune_project project_name =
   Printf.sprintf
@@ -1185,11 +1062,12 @@ let init_definition ?(version = "v1alpha1") ?plural ?singular
   in
   let status_schema =
     C.Schema.object_
-      ~required:[ "observedGeneration"; "phase" ]
+      ~required:[ "observedGeneration"; "phase"; "conditions" ]
       [
         ("observedGeneration", C.Schema.integer ~format:`Int64 ());
         ("phase", phase_schema);
         ("message", C.Schema.string ());
+        ("conditions", C.Schema.array C.Condition.schema);
       ]
   in
   let root_schema =
@@ -1258,6 +1136,7 @@ module Status = struct
     observed_generation : int64;
     phase : Phase.t;
     message : string option;
+    conditions : C.Condition.t list;
   }
   [@@deriving kube]
 end

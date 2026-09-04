@@ -69,7 +69,8 @@ The output contains:
 - JSON codecs and the exact selected CRD schema subtrees;
 - a `Kube.Core.Resource` implementation and typed API client;
 - a runnable reflector-backed controller with cancellation, finalizer lifecycle,
-  optional Lease leader election, metrics, liveness, and readiness endpoints;
+  optional Lease leader election, built-in and application metrics, liveness,
+  and readiness endpoints through the shared `Kube.Operator` process shell;
 - the original CRD, least-privilege starting RBAC, Deployment, and sample
   manifests; and
 - a multi-stage container build.
@@ -85,8 +86,11 @@ opam exec -- dune exec widget-operator -- --kubeconfig ~/.kube/config
 
 The generated reconciler deliberately performs no application-specific work.
 Its `Apply` and `Cleanup` branches identify the two required implementation
-boundaries. The finalizer is installed before `Apply`, and it is removed only
-after `Cleanup` succeeds.
+boundaries and increment bounded outcome metrics. The finalizer is installed
+before `Apply`, and it is removed only after `Cleanup` succeeds. The entry point
+delegates standard flags, signals, client ownership, diagnostics, and leadership
+to `Kube.Operator`, keeping generated lifecycle behavior aligned with the
+library.
 
 A direct local run keeps leader election and the diagnostics listener disabled.
 The generated Deployment enables Lease election for two replicas, binds the

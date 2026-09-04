@@ -34,6 +34,13 @@ status, Scale, log, watch, and generic subresource operations. Paginated lists,
 watch bookmarks, streaming initial events, and resource-version recovery are
 handled explicitly.
 
+For a controller's common declarative write, `Kube.Reconcile.Make(Resource)`
+adds `apply` and `apply_owned`. The latter validates and installs a controller
+owner reference, then uses Server-Side Apply with an explicit field manager.
+`Kube.Retry.on_conflict` provides the short refetch-and-recompute retry loop
+used for optimistic updates. See [Operator patterns](operator-patterns.md) for
+compilation-checked examples and the ownership safety rules.
+
 Collection deletion defaults to the configured namespace, or `default`.
 Cross-namespace collection deletion requires `~all_namespaces:true` and cannot
 be combined with `~namespace`.

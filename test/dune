@@ -44,3 +44,8 @@
  (name test_streaming)
  (modules test_streaming)
  (libraries kube fake_api_server alcotest yojson))
+
+(test
+ (name test_operator_ergonomics)
+ (modules test_operator_ergonomics)
+ (libraries kube kube.crd kube.test alcotest yojson uri))

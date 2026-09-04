@@ -20,6 +20,9 @@ The project is pre-release and has not yet been published to OPAM.
 - Pod logs, exec, attach, and port forwarding.
 - CRD generation, admission and conversion webhooks, operator scaffolding, and
   a deterministic testkit.
+- A batteries-included operator runner, declarative owned-child apply,
+  conflict retries, standard status conditions, and compilation-checked common
+  patterns.
 
 ## Build
 
@@ -51,6 +54,7 @@ and the local integration example.
 | [Getting started](docs/getting-started.md) | Build, configuration, and first request |
 | [Client APIs](docs/client.md) | Typed, dynamic, subresource, and streaming clients |
 | [Controller runtime](docs/controllers.md) | Reconciliation, caching, watches, and leadership |
+| [Operator patterns](docs/operator-patterns.md) | Owned children, apply, retries, conditions, metrics, and tests |
 | [Operations](docs/operations.md) | Logging, health, metrics, diagnostics, and events |
 | [Compatibility](docs/compatibility.md) | Supported Kubernetes versions and feature floor |
 | [Generated APIs](docs/api-codegen.md) | API packages, versioning, and regeneration |
@@ -59,6 +63,8 @@ and the local integration example.
 | [Streaming](docs/streaming.md) | Exec, attach, and port forwarding |
 | [Webhooks](docs/webhooks.md) | Admission, conversion, and TLS serving |
 | [Testing](docs/testing.md) | Scripted transports and integration boundaries |
+| [Client-go and Rust comparison](docs/ecosystem-comparison.md) | Current parity, honest gaps, and priorities |
+| [Why OCaml?](docs/why-ocaml.md) | Strengths, tradeoffs, and when to choose it |
 
 Release history is in [CHANGES.md](CHANGES.md). See
 [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the

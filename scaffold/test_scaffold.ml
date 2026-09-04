@@ -166,13 +166,17 @@ let test_render () =
     (contains operator "Finalizer.run ~cancel:request.cancel");
   Alcotest.(check bool)
     "leader election" true
-    (contains operator "K.Leader_election.run ~cancel ~on_phase");
+    (contains operator "K.Operator.Options.parse");
   Alcotest.(check bool)
     "diagnostics" true
-    (contains operator "K.Diagnostics.component diagnostics");
+    (contains operator "K.Operator.run options");
   Alcotest.(check bool)
     "cache readiness" true
-    (contains operator "~metrics ~health ~reconcile");
+    (contains operator "~metrics:context.metrics"
+    && contains operator "~health:context.health");
+  Alcotest.(check bool)
+    "application metrics" true
+    (contains operator "operator_reconciles_total");
   let rbac = find_file "deploy/rbac.yaml" files in
   Alcotest.(check bool)
     "Lease RBAC" true
@@ -211,7 +215,8 @@ let test_init_render () =
     (contains resource "replicas : int" && contains resource "image : string");
   Alcotest.(check bool)
     "typed status" true
-    (contains resource "type t = Pending | Ready | Failed of string");
+    (contains resource "type t = Pending | Ready | Failed of string"
+    && contains resource "conditions : C.Condition.t list");
   let tools = find_file "tools/dune" files in
   Alcotest.(check bool)
     "CRD drift gate" true

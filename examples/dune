@@ -25,6 +25,11 @@
  (modules client_features_check)
  (libraries kube kube.api.v1_36))
 
+(library
+ (name common_patterns)
+ (modules common_patterns)
+ (libraries kube kube.crd kube.api.v1_36 greeting))
+
 (executable
  (name multi_namespace_check)
  (modules multi_namespace_check)

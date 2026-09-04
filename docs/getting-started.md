@@ -77,9 +77,13 @@ ocaml-kube scaffold \
 ```
 
 The generated project contains typed models, a controller, CRD and RBAC
-manifests, deployment files, and drift checks. See
+manifests, deployment files, drift checks, standard process lifecycle, and a
+bounded custom-metrics example. Its entry point only needs to construct the
+application-specific controller; configuration, graceful signals, diagnostics,
+and optional Lease leadership are handled by `Kube.Operator`. See
 [Operator scaffolding](scaffolding.md) for the supported schema mapping and
-generated layout.
+generated layout, then [Operator patterns](operator-patterns.md) for owned
+children, status conditions, conflict retries, and testing.
 
 ## Run the integration example
 

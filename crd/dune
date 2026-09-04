@@ -2,7 +2,7 @@
  (name kube_crd)
  (public_name kube.crd)
  (modules kube_crd)
- (libraries kube yojson))
+ (libraries kube ptime.clock.os yojson))
 
 (test
  (name test_crd)

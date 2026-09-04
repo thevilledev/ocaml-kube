@@ -48,6 +48,29 @@ caches synchronize, initial keys are queued, and workers start.
 Leader-elected replicas remain live while standby readiness is false. Readiness
 also becomes false as soon as shutdown begins.
 
+## Application instrumentation
+
+Controllers automatically publish reconciliation counts, failures, latency,
+and active workers when given a registry. Add domain outcomes to that same
+registry with bounded labels:
+
+```ocaml
+let outcome registry value =
+  Kube.Metrics.Counter.create ~registry
+    ~name:"greeting_reconciles_total"
+    ~help:"Greeting reconciliation outcomes."
+    ~labels:[ ("outcome", value) ] ()
+
+let updated = outcome metrics "updated"
+let unchanged = outcome metrics "unchanged"
+```
+
+Do not use object names, UIDs, messages, or arbitrary labels as Prometheus label
+values. Put high-cardinality object context in structured logs and Events. The
+[`greeting_operator`](../examples/greeting_operator.ml) is a complete example
+with outcome counters, a message-size histogram, contextual logs, Events, and
+the diagnostics endpoint that exposes them.
+
 ## Kubernetes Events
 
 The event recorder does not depend on a generated built-in API package:

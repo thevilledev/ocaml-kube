@@ -389,6 +389,183 @@ module Yaml = struct
     Buffer.contents buffer
 end
 
+module Condition = struct
+  type status = True | False | Unknown
+
+  type t = {
+    type_ : string;
+    status : status;
+    observed_generation : int64 option;
+    last_transition_time : string;
+    reason : string;
+    message : string;
+  }
+
+  let ( let* ) result fn =
+    match result with
+    | Ok value -> fn value
+    | Error _ as error -> error
+
+  let status_to_string = function
+    | True -> "True"
+    | False -> "False"
+    | Unknown -> "Unknown"
+
+  let status_of_string = function
+    | "True" -> Ok True
+    | "False" -> Ok False
+    | "Unknown" -> Ok Unknown
+    | value -> Error ("invalid condition status: " ^ value)
+
+  let current_time () =
+    Ptime.to_rfc3339 ~frac_s:6 ~tz_offset_s:0 (Ptime_clock.now ())
+
+  let validate_label field value =
+    if String.trim value = "" then invalid_arg ("Condition.make: empty " ^ field)
+
+  let validate_length field maximum value =
+    if String.length value > maximum then
+      invalid_arg
+        (Printf.sprintf "Condition.make: %s exceeds %d bytes" field maximum)
+
+  let validate_timestamp value =
+    match Ptime.of_rfc3339 value with
+    | Ok _ -> ()
+    | Error _ ->
+        invalid_arg "Condition.make: last_transition_time must be RFC 3339"
+
+  let make ?observed_generation ?last_transition_time ~type_ ~status ~reason
+      ~message () =
+    validate_label "type" type_;
+    validate_label "reason" reason;
+    validate_length "type" 316 type_;
+    validate_length "reason" 1024 reason;
+    validate_length "message" 32768 message;
+    let last_transition_time =
+      Option.value ~default:(current_time ()) last_transition_time
+    in
+    validate_timestamp last_transition_time;
+    {
+      type_;
+      status;
+      observed_generation;
+      last_transition_time;
+      reason;
+      message;
+    }
+
+  let find type_ = List.find_opt (fun condition -> condition.type_ = type_)
+
+  let is_true type_ conditions =
+    match find type_ conditions with
+    | Some { status = True; _ } -> true
+    | Some _ | None -> false
+
+  let set ?(now = current_time) condition conditions =
+    match find condition.type_ conditions with
+    | None -> (conditions @ [ condition ], true)
+    | Some previous ->
+        let condition =
+          if condition.status = previous.status then
+            {
+              condition with
+              last_transition_time = previous.last_transition_time;
+            }
+          else { condition with last_transition_time = now () }
+        in
+        if condition = previous then (conditions, false)
+        else
+          ( List.map
+              (fun value ->
+                if value.type_ = condition.type_ then condition else value)
+              conditions,
+            true )
+
+  let remove type_ conditions =
+    let remaining =
+      List.filter (fun condition -> condition.type_ <> type_) conditions
+    in
+    (remaining, List.length remaining <> List.length conditions)
+
+  let member name = function
+    | `Assoc fields -> List.assoc_opt name fields
+    | _ -> None
+
+  let required_string name json =
+    match member name json with
+    | Some (`String value) -> Ok value
+    | Some _ -> Error (name ^ " must be a string")
+    | None -> Error (name ^ " is required")
+
+  let observed_generation json =
+    match member "observedGeneration" json with
+    | None | Some `Null -> Ok None
+    | Some (`Int value) -> Ok (Some (Int64.of_int value))
+    | Some (`Intlit value) -> (
+        try Ok (Some (Int64.of_string value))
+        with Failure _ -> Error "observedGeneration is outside int64 range")
+    | Some _ -> Error "observedGeneration must be an integer"
+
+  let timestamp json =
+    let* value = required_string "lastTransitionTime" json in
+    match Ptime.of_rfc3339 value with
+    | Ok _ -> Ok value
+    | Error _ -> Error "lastTransitionTime must be RFC 3339"
+
+  let of_json json =
+    match json with
+    | `Assoc _ ->
+        let* type_ = required_string "type" json in
+        let* status = required_string "status" json in
+        let* status = status_of_string status in
+        let* observed_generation = observed_generation json in
+        let* last_transition_time = timestamp json in
+        let* reason = required_string "reason" json in
+        let* message = required_string "message" json in
+        let* () =
+          if String.trim type_ = "" then Error "type must not be empty"
+          else if String.trim reason = "" then Error "reason must not be empty"
+          else Ok ()
+        in
+        Ok
+          {
+            type_;
+            status;
+            observed_generation;
+            last_transition_time;
+            reason;
+            message;
+          }
+    | _ -> Error "condition must be an object"
+
+  let to_json condition =
+    `Assoc
+      ([
+         ("type", `String condition.type_);
+         ("status", `String (status_to_string condition.status));
+         ("lastTransitionTime", `String condition.last_transition_time);
+         ("reason", `String condition.reason);
+         ("message", `String condition.message);
+       ]
+      @
+      match condition.observed_generation with
+      | None -> []
+      | Some value ->
+          [ ("observedGeneration", `Intlit (Int64.to_string value)) ])
+
+  let schema =
+    Schema.object_
+      ~required:[ "type"; "status"; "lastTransitionTime"; "reason"; "message" ]
+      [
+        ("type", Schema.string ~min_length:1 ~max_length:316 ());
+        ("status", Schema.string ~enum:[ "True"; "False"; "Unknown" ] ());
+        ("observedGeneration", Schema.integer ~format:`Int64 ());
+        ("lastTransitionTime", Schema.string ~format:"date-time" ());
+        ("reason", Schema.string ~min_length:1 ~max_length:1024 ());
+        ("message", Schema.string ~max_length:32768 ());
+      ]
+end
+
 module Custom_resource_definition = struct
   type scale = {
     spec_replicas_path : string;

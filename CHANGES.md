@@ -7,6 +7,17 @@ Versioning once the first release is tagged.
 
 ### Added
 
+- A batteries-included `Kube.Operator` runner that centralizes standard CLI
+  flags, configuration, signal cancellation, client ownership, diagnostics,
+  health, metrics, and optional Lease leadership for examples and scaffolds.
+- `Kube.Reconcile` helpers for typed Server-Side Apply and safe controller-owned
+  children, plus cancellation-aware `Kube.Retry.on_conflict` optimistic retry.
+- Kubernetes-standard custom-resource conditions with transition-preserving
+  updates, strict codecs, and structural schemas.
+- Compilation-checked common operator patterns, application instrumentation,
+  an ecosystem parity audit, and a candid guide to choosing OCaml over Go or
+  Rust.
+
 - Native OCaml 5 Kubernetes HTTP and TLS transport.
 - Authenticated WebSocket upgrades; versioned exec and attach channels with
   resize, half-close, and structured exit status; and multiplexed Pod

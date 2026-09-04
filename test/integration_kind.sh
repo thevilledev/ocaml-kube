@@ -275,8 +275,8 @@ kubectl --kubeconfig "$kubeconfig" wait \
   "$greeting_resource/hello-ocaml" --timeout=30s
 
 observed=$(kubectl --kubeconfig "$kubeconfig" get "$greeting_resource" hello-ocaml \
-  -o jsonpath='{.metadata.generation}:{.status.observedGeneration}:{.status.reconciledMessage}:{.status.phase.type}')
-test "$observed" = "2:2:updated by watch:Ready"
+  -o jsonpath='{.metadata.generation}:{.status.observedGeneration}:{.status.reconciledMessage}:{.status.phase.type}:{.status.conditions[?(@.type=="Ready")].status}')
+test "$observed" = "2:2:updated by watch:Ready:True"
 
 kubectl --kubeconfig "$kubeconfig" delete "$greeting_resource" hello-ocaml \
   --wait=true --timeout=30s
@@ -291,11 +291,13 @@ operator_pid_a=
 stop_operator "$operator_pid_b"
 operator_pid_b=
 
-grep -q 'generation 1: hello from OCaml' "$operator_log_a" "$operator_log_b"
-grep -q 'generation 2: updated by watch' "$operator_log_a" "$operator_log_b"
-grep -q 'finalized default/hello-ocaml' "$operator_log_a" "$operator_log_b"
-grep -q "acquired leadership as $first_holder" "$operator_log_a" "$operator_log_b"
-grep -q "acquired leadership as $second_holder" "$operator_log_a" "$operator_log_b"
+grep -q '"message":"Greeting status updated"' "$operator_log_a" "$operator_log_b"
+grep -q '"generation":1' "$operator_log_a" "$operator_log_b"
+grep -q '"generation":2' "$operator_log_a" "$operator_log_b"
+grep -q '"message":"Greeting cleanup completed"' "$operator_log_a" "$operator_log_b"
+grep -q '"message":"Leadership acquired"' "$operator_log_a" "$operator_log_b"
+grep -q "\"identity\":\"$first_holder\"" "$operator_log_a" "$operator_log_b"
+grep -q "\"identity\":\"$second_holder\"" "$operator_log_a" "$operator_log_b"
 
 kubectl --kubeconfig "$kubeconfig" delete lease kube-greeting-operator \
   --namespace default --ignore-not-found

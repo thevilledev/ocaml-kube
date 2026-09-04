@@ -19,6 +19,7 @@ module Status = struct
     observed_generation : int;
     reconciled_message : string;
     phase : Phase.t;
+    conditions : C.Condition.t list;
   }
   [@@deriving kube]
 end

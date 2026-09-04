@@ -45,6 +45,15 @@ The Greeting proof in `examples/greeting.ml` is the executable reference. The
 `examples/greeting_crd.exe` generator produces `deploy/crd.yaml`, and the
 `@codegen-check` alias verifies that the committed manifest has not drifted.
 
+## Standard conditions
+
+`Kube_crd.Condition.t` implements the Kubernetes `metav1.Condition` wire shape
+and provides a structural schema, strict codec, constructors, lookup, removal,
+and `set` transition semantics. It can be used directly inside a type derived
+with `[@@deriving kube]`. Updating a reason or message retains the previous
+transition timestamp while changing status advances it. See
+[Operator patterns](operator-patterns.md) for a status example.
+
 ## Deriving codecs and schemas
 
 Add the rewriter to the module containing the custom-resource model:
