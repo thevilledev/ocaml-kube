@@ -324,8 +324,10 @@ module Forwarder = struct
     let report error = try forwarder.on_connection_error error with _ -> () in
     match open_stream forwarder.connection ~port:remote_port with
     | Error error ->
-        report error;
-        request_stop ~failure:error forwarder
+        (* Match client-go: a failed local connection is reported and closed,
+           but does not tear down the shared listener/tunnel. A later local
+           connection may still succeed. *)
+        report error
     | Ok stream -> (
         let upload_error = Atomic.make None in
         let stop_upload = Atomic.make false in
@@ -600,5 +602,6 @@ module For_testing = struct
   let decode_syn_stream = Spdy.For_testing.decode_syn_stream
   let syn_reply = Spdy.For_testing.syn_reply
   let data = Spdy.For_testing.data
+  let reset = Spdy.For_testing.reset
   let decode_data = Spdy.For_testing.decode_data
 end

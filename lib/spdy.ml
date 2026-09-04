@@ -810,6 +810,12 @@ module For_testing = struct
 
   let data ~stream_id ~fin payload = data_frame ~stream_id ~fin payload
 
+  let reset ~stream_id ~status =
+    let payload = Buffer.create 8 in
+    add_u32 payload stream_id;
+    add_u32 payload status;
+    control_frame ~frame_type:3 ~flags:0 (Buffer.contents payload)
+
   let decode_data frame =
     if String.length frame < 8 then Error "truncated SPDY data frame"
     else

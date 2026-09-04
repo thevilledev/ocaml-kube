@@ -488,6 +488,130 @@ let test_port_forwarder () =
     (query_values "port" target);
   Alcotest.(check string) "forwarded input" "ping" input
 
+let test_port_forwarder_recovers_from_stream_error () =
+  let serve descriptor =
+    let request = read_head descriptor in
+    accept_websocket descriptor request "SPDY/3.1+portforward.k8s.io";
+    let peer = K.Port_forward.For_testing.peer () in
+    let rec receive_syn expected_type =
+      let frame = read_client_frame descriptor in
+      match K.Port_forward.For_testing.decode_syn_stream peer frame.payload with
+      | Error _ -> receive_syn expected_type
+      | Ok (stream_id, headers) ->
+          Alcotest.(check string)
+            "stream type" expected_type
+            (List.assoc "streamtype" headers);
+          write_all descriptor
+            (server_frame 2
+               (K.Port_forward.For_testing.syn_reply peer ~stream_id));
+          stream_id
+    in
+    let receive_error_fin stream_id =
+      let rec loop () =
+        let frame = read_client_frame descriptor in
+        match K.Port_forward.For_testing.decode_data frame.payload with
+        | Ok (candidate, true, "") when candidate = stream_id -> ()
+        | Ok _ | Error _ -> loop ()
+      in
+      loop ()
+    in
+    let first_error = receive_syn "error" in
+    receive_error_fin first_error;
+    let first_data = receive_syn "data" in
+    write_all descriptor
+      (server_frame 2
+         (K.Port_forward.For_testing.reset ~stream_id:first_data ~status:2));
+    let second_error = receive_syn "error" in
+    receive_error_fin second_error;
+    let second_data = receive_syn "data" in
+    let input = Buffer.create 16 in
+    let rec receive_input () =
+      let frame = read_client_frame descriptor in
+      match K.Port_forward.For_testing.decode_data frame.payload with
+      | Ok (stream_id, fin, payload) when stream_id = second_data ->
+          Buffer.add_string input payload;
+          if not fin then receive_input ()
+      | Ok _ | Error _ -> receive_input ()
+    in
+    receive_input ();
+    write_all descriptor
+      (server_frame 2
+         (K.Port_forward.For_testing.data ~stream_id:second_error ~fin:true
+            ""));
+    write_all descriptor
+      (server_frame 2
+         (K.Port_forward.For_testing.data ~stream_id:second_data ~fin:true
+            "pong"));
+    let rec await_close () =
+      let frame = read_client_frame descriptor in
+      if frame.opcode <> 8 then await_close ()
+    in
+    await_close ();
+    (request, Buffer.contents input)
+  in
+  let run config =
+    let client = K.Client.create config in
+    Fun.protect
+      ~finally:(fun () -> K.Client.close client)
+      (fun () ->
+        let errors = Atomic.make 0 in
+        let mapping =
+          K.Port_forward.Forwarder.{ local_port = 0; remote_port = 8080 }
+        in
+        match
+          K.Port_forward.Forwarder.start
+            ~on_connection_error:(fun _ -> Atomic.incr errors)
+            client ~pod:"demo" ~ports:[ mapping ] ()
+        with
+        | Error error ->
+            Alcotest.failf "port-forward failed: %a" K.Port_forward.pp_error
+              error
+        | Ok forwarder ->
+            Fun.protect
+              ~finally:(fun () -> K.Port_forward.Forwarder.close forwarder)
+              (fun () ->
+                let port =
+                  match K.Port_forward.Forwarder.bound_ports forwarder with
+                  | [ value ] -> value.local_port
+                  | _ -> Alcotest.fail "unexpected bound-port count"
+                in
+                let connect () =
+                  let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+                  Unix.connect socket
+                    (Unix.ADDR_INET (Unix.inet_addr_loopback, port));
+                  socket
+                in
+                let first = connect () in
+                Fun.protect
+                  ~finally:(fun () -> Unix.close first)
+                  (fun () ->
+                    write_all first "discard";
+                    Unix.shutdown first Unix.SHUTDOWN_SEND;
+                    let probe = Bytes.create 1 in
+                    Alcotest.(check int)
+                      "failed connection closes locally" 0
+                      (Unix.read first probe 0 1));
+                let deadline = Unix.gettimeofday () +. 2. in
+                while Atomic.get errors = 0 && Unix.gettimeofday () < deadline do
+                  Thread.delay 0.001
+                done;
+                Alcotest.(check int)
+                  "stream failure reported" 1 (Atomic.get errors);
+                let second = connect () in
+                Fun.protect
+                  ~finally:(fun () -> Unix.close second)
+                  (fun () ->
+                    write_all second "ping";
+                    Unix.shutdown second Unix.SHUTDOWN_SEND;
+                    Alcotest.(check string)
+                      "next connection succeeds" "pong" (read_exact second 4))))
+  in
+  let (), (request, input) = with_server serve run in
+  Alcotest.(check (list string))
+    "requested port" [ "8080" ]
+    (request_target request |> query_values "port");
+  Alcotest.(check string) "second input forwarded" "ping" input
+
 let test_port_forward_remote_error () =
   let serve descriptor =
     let request = read_head descriptor in
@@ -574,6 +698,8 @@ let () =
       ( "port forward",
         [
           Alcotest.test_case "local forwarder" `Quick test_port_forwarder;
+          Alcotest.test_case "stream error recovery" `Quick
+            test_port_forwarder_recovers_from_stream_error;
           Alcotest.test_case "remote error wakes data" `Quick
             test_port_forward_remote_error;
         ] );

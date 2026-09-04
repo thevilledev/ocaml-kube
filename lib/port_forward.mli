@@ -59,7 +59,8 @@ module Forwarder : sig
   (** Bind local TCP listeners and forward every accepted connection through a
       shared Kubernetes port-forward tunnel. Addresses must be IP literals; the
       default is 127.0.0.1. A local port of zero asks the OS to choose a free
-      port. *)
+      port. Per-connection stream failures are sent to [on_connection_error]
+      without stopping the shared listener. *)
 
   val bound_ports : t -> bound_port list
   val connection : t -> connection
@@ -83,5 +84,6 @@ module For_testing : sig
 
   val syn_reply : peer -> stream_id:int -> string
   val data : stream_id:int -> fin:bool -> string -> string
+  val reset : stream_id:int -> status:int -> string
   val decode_data : string -> (int * bool * string, string) result
 end

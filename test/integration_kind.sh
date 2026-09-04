@@ -19,12 +19,26 @@ stop_operator() {
   pid=$1
   if [ -n "$pid" ]; then
     if kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid"
+      kill -TERM "$pid" 2>/dev/null || true
+      (
+        sleep 10
+        if kill -0 "$pid" 2>/dev/null; then
+          echo "operator $pid did not stop within 10 seconds; killing it" >&2
+          kill -KILL "$pid" 2>/dev/null || true
+        fi
+      ) &
+      stop_watchdog_pid=$!
+    else
+      stop_watchdog_pid=
     fi
     if wait "$pid"; then
       operator_status=0
     else
       operator_status=$?
+    fi
+    if [ -n "$stop_watchdog_pid" ]; then
+      kill "$stop_watchdog_pid" 2>/dev/null || true
+      wait "$stop_watchdog_pid" 2>/dev/null || true
     fi
     if [ "$operator_status" -ne 0 ]; then
       echo "operator exited with status $operator_status during shutdown" >&2

@@ -5,6 +5,13 @@ Versioning once the first release is tagged.
 
 ## Unreleased
 
+### Fixed
+
+- Reliable SIGINT and SIGTERM cancellation while the operator supervisor is
+  blocked waiting for components, including generated operators on Linux.
+- Recoverable per-connection port-forward stream failures, with bounded and
+  diagnostic integration probes instead of indefinite CI hangs.
+
 ### Added
 
 - A batteries-included `Kube.Operator` runner that centralizes standard CLI

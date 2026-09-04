@@ -47,7 +47,8 @@ jobs:
           name: kind-${{ matrix.minor }}-logs
           path: |
             kind-logs-${{ matrix.minor }}
-            _build/greeting-operator.integration.log
+            _build/greeting-operator-a.integration.log
+            _build/greeting-operator-b.integration.log
 
   edge-1-37:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -77,4 +78,5 @@ jobs:
           name: kind-1.37-logs
           path: |
             kind-logs-1.37
-            _build/greeting-operator.integration.log
+            _build/greeting-operator-a.integration.log
+            _build/greeting-operator-b.integration.log

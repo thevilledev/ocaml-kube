@@ -28,5 +28,6 @@ module For_testing : sig
 
   val syn_reply : peer -> stream_id:int -> string
   val data : stream_id:int -> fin:bool -> string -> string
+  val reset : stream_id:int -> status:int -> string
   val decode_data : string -> (int * bool * string, string) result
 end

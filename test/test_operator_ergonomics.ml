@@ -245,6 +245,84 @@ let test_operator_runner () =
     "invalid options" (Error "--workers must be positive")
     (K.Operator.run_with_client invalid client ~components:(fun _ -> []))
 
+let signal_test_kubeconfig =
+  {|{
+  "apiVersion": "v1",
+  "kind": "Config",
+  "clusters": [
+    {"name": "local", "cluster": {"server": "http://127.0.0.1:1"}}
+  ],
+  "contexts": [
+    {"name": "local", "context": {"cluster": "local", "user": "local"}}
+  ],
+  "current-context": "local",
+  "users": [{"name": "local", "user": {"token": "test"}}]
+}|}
+
+let test_operator_signal_shutdown () =
+  let ready_read, ready_write = Unix.pipe ~cloexec:true () in
+  match Unix.fork () with
+  | 0 ->
+      Unix.close ready_read;
+      let kubeconfig = Filename.temp_file "kube-operator-signal-" ".json" in
+      let output = open_out_bin kubeconfig in
+      output_string output signal_test_kubeconfig;
+      close_out output;
+      let options =
+        K.Operator.Options.make ~kubeconfig
+          ~leader_election_name:"signal-test" ()
+      in
+      let result =
+        K.Operator.run
+          ~logger:(K.Log.create ~sink:(fun _ -> ()) ())
+          options ~components:(fun _ ->
+            [
+              K.Manager.component ~name:"waiting" (fun ~client:_ ~cancel ->
+                  ignore (Unix.write_substring ready_write "r" 0 1);
+                  while K.Cancel.sleep cancel 60. do
+                    ()
+                  done;
+                  Ok ());
+            ])
+      in
+      Unix.close ready_write;
+      Sys.remove kubeconfig;
+      Unix._exit (if Result.is_ok result then 0 else 1)
+  | child ->
+      Unix.close ready_write;
+      let reaped = ref false in
+      Fun.protect
+        ~finally:(fun () ->
+          Unix.close ready_read;
+          if not !reaped then (
+            (try Unix.kill child Sys.sigkill with Unix.Unix_error _ -> ());
+            try ignore (Unix.waitpid [] child) with Unix.Unix_error _ -> ()))
+        (fun () ->
+          let readable, _, _ = Unix.select [ ready_read ] [] [] 5. in
+          if readable = [] then
+            Alcotest.fail "operator component did not start";
+          let byte = Bytes.create 1 in
+          Alcotest.(check int)
+            "readiness byte" 1 (Unix.read ready_read byte 0 1);
+          Unix.kill child Sys.sigterm;
+          let deadline = Unix.gettimeofday () +. 5. in
+          let rec await () =
+            match Unix.waitpid [ Unix.WNOHANG ] child with
+            | 0, _ when Unix.gettimeofday () < deadline ->
+                Thread.delay 0.01;
+                await ()
+            | 0, _ -> Alcotest.fail "operator did not stop after SIGTERM"
+            | _, status ->
+                reaped := true;
+                status
+          in
+          match await () with
+          | Unix.WEXITED 0 -> ()
+          | Unix.WEXITED code ->
+              Alcotest.failf "operator exited with status %d" code
+          | Unix.WSIGNALED signal | Unix.WSTOPPED signal ->
+              Alcotest.failf "operator ended on signal %d" signal)
+
 let () =
   Alcotest.run "Operator ergonomics"
     [
@@ -257,5 +335,9 @@ let () =
       ( "status",
         [ Alcotest.test_case "standard conditions" `Quick test_conditions ] );
       ( "process",
-        [ Alcotest.test_case "operator runner" `Quick test_operator_runner ] );
+        [
+          Alcotest.test_case "operator runner" `Quick test_operator_runner;
+          Alcotest.test_case "SIGTERM shutdown" `Quick
+            test_operator_signal_shutdown;
+        ] );
     ]

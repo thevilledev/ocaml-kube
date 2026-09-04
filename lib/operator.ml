@@ -231,14 +231,47 @@ let run_with_client ?cancel ?health ?metrics options client ~components =
 let with_signal_handlers cancel enabled fn =
   if not enabled then fn ()
   else
+    let signals = [ Sys.sigint; Sys.sigterm ] in
     let handler = Sys.Signal_handle (fun _ -> Cancel.cancel cancel) in
     let previous_int = Sys.signal Sys.sigint handler in
     let previous_term = Sys.signal Sys.sigterm handler in
-    Fun.protect
-      ~finally:(fun () ->
-        ignore (Sys.signal Sys.sigint previous_int);
-        ignore (Sys.signal Sys.sigterm previous_term))
-      fn
+    let restore_handlers () =
+      ignore (Sys.signal Sys.sigint previous_int);
+      ignore (Sys.signal Sys.sigterm previous_term)
+    in
+    (* A main thread blocked in [Condition.wait] is not reliably interrupted by
+       POSIX signals on Linux. Keep SIGINT/SIGTERM blocked in the supervisor and
+       its children, and dedicate one live OCaml thread to receiving them. *)
+    match
+      try Some (Thread.sigmask Unix.SIG_BLOCK signals)
+      with Invalid_argument _ -> None
+    with
+    | None -> Fun.protect ~finally:restore_handlers fn
+    | Some previous_mask ->
+        let pump_cancel = Cancel.create () in
+        let pump =
+          try
+            Thread.create
+              (fun () ->
+                ignore (Thread.sigmask Unix.SIG_UNBLOCK signals);
+                while Cancel.sleep pump_cancel 3600. do
+                  ()
+                done)
+              ()
+          with exn ->
+            ignore (Thread.sigmask Unix.SIG_SETMASK previous_mask);
+            restore_handlers ();
+            raise exn
+        in
+        Fun.protect
+          ~finally:(fun () ->
+            Cancel.cancel pump_cancel;
+            Thread.join pump;
+            (* Unblock pending signals while our cancellation handler is still
+               installed, then put the caller's handlers back. *)
+            ignore (Thread.sigmask Unix.SIG_SETMASK previous_mask);
+            restore_handlers ())
+          fn
 
 let run ?cancel ?(logger = Log.stderr ()) ?(install_signal_handlers = true)
     options ~components =

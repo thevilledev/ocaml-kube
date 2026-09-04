@@ -1,14 +1,11 @@
 module K = Kube
 
-let fail message =
-  Printf.eprintf "%s\n%!" message;
-  exit 1
+exception Check_failed of string
+
+let fail message = raise (Check_failed message)
 
 let remote_error context error =
   fail (context ^ ": " ^ Format.asprintf "%a" K.Remote_command.pp_error error)
-
-let port_error context error =
-  fail (context ^ ": " ^ Format.asprintf "%a" K.Port_forward.pp_error error)
 
 let contains value fragment =
   let value_length = String.length value in
@@ -96,67 +93,121 @@ let check_attach client ~namespace ~pod =
               receive ()))
 
 let write_all descriptor value =
-  let rec loop offset =
-    if offset < String.length value then
-      let count =
-        Unix.write_substring descriptor value offset
-          (String.length value - offset)
-      in
-      if count = 0 then fail "local port-forward write returned zero"
-      else loop (offset + count)
-  in
-  loop 0
+  try
+    let rec loop offset =
+      if offset = String.length value then Ok ()
+      else
+        let count =
+          Unix.write_substring descriptor value offset
+            (String.length value - offset)
+        in
+        if count = 0 then Error "local socket write returned zero"
+        else loop (offset + count)
+    in
+    loop 0
+  with Unix.Unix_error (error, operation, _) ->
+    Error (operation ^ ": " ^ Unix.error_message error)
 
-let check_port_forward client ~namespace ~pod =
-  with_deadline 30. (fun cancel ->
-      let mapping =
-        K.Port_forward.Forwarder.{ local_port = 0; remote_port = 8080 }
-      in
-      match
-        K.Port_forward.Forwarder.start ~cancel ~namespace client ~pod
-          ~ports:[ mapping ] ()
-      with
-      | Error error -> port_error "port-forward upgrade" error
-      | Ok forwarder ->
-          Fun.protect
-            ~finally:(fun () -> K.Port_forward.Forwarder.close forwarder)
-            (fun () ->
-              let port =
-                match K.Port_forward.Forwarder.bound_ports forwarder with
-                | [ value ] -> value.local_port
-                | _ -> fail "port-forward bound an unexpected listener count"
-              in
+let read_http_response descriptor =
+  let deadline = Unix.gettimeofday () +. 5. in
+  let buffer = Bytes.create 4096 in
+  let response = Buffer.create 4096 in
+  let rec read () =
+    let current = Buffer.contents response in
+    if contains current "port-forward-ok" then Ok current
+    else
+      let remaining = deadline -. Unix.gettimeofday () in
+      if remaining <= 0. then Error "timed out waiting for the HTTP response"
+      else
+        try
+          match Unix.select [ descriptor ] [] [] remaining with
+          | [], _, _ -> Error "timed out waiting for the HTTP response"
+          | _ -> (
+              match Unix.read descriptor buffer 0 (Bytes.length buffer) with
+              | 0 -> Ok (Buffer.contents response)
+              | count ->
+                  Buffer.add_subbytes response buffer 0 count;
+                  read ())
+        with
+        | Unix.Unix_error (Unix.EINTR, _, _) -> read ()
+        | Unix.Unix_error (error, operation, _) ->
+            Error (operation ^ ": " ^ Unix.error_message error)
+  in
+  read ()
+
+let port_forward_attempt ~cancel client ~namespace ~pod =
+  let mapping = K.Port_forward.Forwarder.{ local_port = 0; remote_port = 8080 } in
+  let connection_error = Atomic.make None in
+  match
+    K.Port_forward.Forwarder.start ~cancel ~namespace
+      ~on_connection_error:(fun error -> Atomic.set connection_error (Some error))
+      client ~pod ~ports:[ mapping ] ()
+  with
+  | Error error ->
+      Error
+        ("upgrade failed: " ^ Format.asprintf "%a" K.Port_forward.pp_error error)
+  | Ok forwarder ->
+      Fun.protect
+        ~finally:(fun () -> K.Port_forward.Forwarder.close forwarder)
+        (fun () ->
+          match K.Port_forward.Forwarder.bound_ports forwarder with
+          | [ value ] ->
               let descriptor = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
               Fun.protect
                 ~finally:(fun () ->
                   try Unix.close descriptor with Unix.Unix_error _ -> ())
                 (fun () ->
-                  Unix.connect descriptor
-                    (Unix.ADDR_INET (Unix.inet_addr_loopback, port));
-                  write_all descriptor
-                    "GET /proof.txt HTTP/1.1\r\n\
-                     Host: pod\r\n\
-                     Connection: close\r\n\
-                     \r\n";
-                  let buffer = Bytes.create 4096 in
-                  let response = Buffer.create 4096 in
-                  let rec read () =
-                    match
-                      Unix.read descriptor buffer 0 (Bytes.length buffer)
-                    with
-                    | 0 -> ()
-                    | count ->
-                        Buffer.add_subbytes response buffer 0 count;
-                        read ()
+                  let result =
+                    try
+                      Unix.connect descriptor
+                        (Unix.ADDR_INET
+                           (Unix.inet_addr_loopback, value.local_port));
+                      match
+                        write_all descriptor
+                          "GET /proof.txt HTTP/1.1\r\n\
+                           Host: pod\r\n\
+                           Connection: close\r\n\
+                           \r\n"
+                      with
+                      | Error _ as error -> error
+                      | Ok () -> read_http_response descriptor
+                    with Unix.Unix_error (error, operation, _) ->
+                      Error (operation ^ ": " ^ Unix.error_message error)
                   in
-                  read ();
-                  let response = Buffer.contents response in
-                  if not (contains response "200 OK") then
-                    fail "port-forward HTTP response was not successful";
-                  if not (contains response "port-forward-ok") then
-                    fail "port-forward response did not contain the Pod payload")))
+                  let result =
+                    match result with
+                    | Ok response when not (contains response "200 OK") ->
+                        Error "HTTP response did not contain a successful status"
+                    | Ok response when not (contains response "port-forward-ok") ->
+                        Error "HTTP response did not contain the Pod payload"
+                    | Ok _ -> Ok ()
+                    | Error _ as error -> error
+                  in
+                  match (result, Atomic.get connection_error) with
+                  | Ok (), _ -> Ok ()
+                  | Error message, None -> Error message
+                  | Error message, Some error ->
+                      Error
+                        (message ^ "; forwarder: "
+                       ^ Format.asprintf "%a" K.Port_forward.pp_error error))
+          | _ -> Error "forwarder bound an unexpected listener count")
 
-let () =
+let check_port_forward client ~namespace ~pod =
+  with_deadline 30. (fun cancel ->
+      let rec attempt number =
+        match port_forward_attempt ~cancel client ~namespace ~pod with
+        | Ok () -> ()
+        | Error message when number < 3 && not (K.Cancel.is_cancelled cancel) ->
+            Printf.eprintf "port-forward attempt %d failed: %s; retrying\n%!"
+              number message;
+            if K.Cancel.sleep cancel (0.25 *. float_of_int number) then
+              attempt (number + 1)
+            else fail "port-forward cancelled while waiting to retry"
+        | Error message -> fail ("port-forward failed: " ^ message)
+      in
+      attempt 1)
+
+let run () =
   let kubeconfig = ref None in
   let context = ref None in
   let namespace = ref "default" in
@@ -189,3 +240,9 @@ let () =
       check_attach client ~namespace:!namespace ~pod:!pod;
       check_port_forward client ~namespace:!namespace ~pod:!pod;
       Printf.printf "streaming passed: exec, attach, and port-forward\n%!")
+
+let () =
+  try run ()
+  with Check_failed message ->
+    Printf.eprintf "%s\n%!" message;
+    exit 1
