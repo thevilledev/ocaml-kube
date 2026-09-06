@@ -4,6 +4,16 @@ All notable changes are recorded here. The project follows Semantic Versioning.
 
 ## Unreleased
 
+## 0.1.1 - 2026-09-06
+
+### Fixed
+
+- Declare the minimum compatible `tls` and `yojson` versions so opam
+  lower-bound builds select dependencies that provide the APIs used by kube.
+- Skip loopback-server integration tests under opam-repository CI, whose build
+  sandbox intentionally disallows binding local sockets. The tests continue to
+  run normally in development and project CI.
+
 ## 0.1.0 - 2026-09-06
 
 ### Added

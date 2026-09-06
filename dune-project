@@ -1,6 +1,6 @@
 (lang dune 3.15)
 (name kube)
-(version 0.1.0)
+(version 0.1.1)
 (generate_opam_files true)
 (source (github thevilledev/ocaml-kube))
 (license Apache-2.0)
@@ -25,7 +25,7 @@
   ppxlib
   ptime
   (secret (>= 0.1.2))
-  tls
+  (tls (>= 2.1.1))
   uri
   x509
-  yojson))
+  (yojson (>= 1.6.0))))

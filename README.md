@@ -7,7 +7,7 @@ A native OCaml 5 client and controller runtime for Kubernetes®.
 > is independent and is not affiliated with, sponsored by, or endorsed by The
 > Linux Foundation or the Kubernetes project.
 
-The current release is **v0.1.0**. The public API is usable, but may still evolve
+The current release is **v0.1.1**. The public API is usable, but may still evolve
 between minor releases while the project is in the 0.x series.
 
 ## Highlights
