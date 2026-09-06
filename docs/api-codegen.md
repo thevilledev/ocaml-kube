@@ -120,7 +120,7 @@ A Kubernetes schema minor always receives a new sublibrary rather than
 rewriting another minor's types. Applications can update the runtime and schema
 packages independently.
 
-Patch updates may regenerate a minor package before its first stable
-`ocaml-kube` release. Once published, a source-incompatible schema change must
-use a new package line or a new major project release; an existing public module
-must not change silently.
+Patch updates may regenerate a minor package before that package has appeared in
+a released `ocaml-kube` version. Once published, a source-incompatible schema
+change must use a new package line or a new major project release; an existing
+public module must not change silently.

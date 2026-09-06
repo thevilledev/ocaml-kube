@@ -1083,8 +1083,9 @@ module Sensitive = struct
             in
             raw ?cancel
               ~headers:[ ("Content-Type", "application/json") ]
-              ~body ~max_body_bytes:(2 * 1024 * 1024) ~hardened client `POST
-              path
+              ~body
+              ~max_body_bytes:(2 * 1024 * 1024)
+              ~hardened client `POST path
             |> fun result -> Result.bind result consume_write_response)
         |> fun result -> Result.bind result Fun.id
 
@@ -1121,8 +1122,9 @@ module Sensitive = struct
             in
             raw ?cancel
               ~headers:[ ("Content-Type", "application/json-patch+json") ]
-              ~body ~max_body_bytes:(2 * 1024 * 1024) ~hardened client `PATCH
-              path
+              ~body
+              ~max_body_bytes:(2 * 1024 * 1024)
+              ~hardened client `PATCH path
             |> fun result -> Result.bind result consume_write_response)
         |> fun result -> Result.bind result Fun.id
 

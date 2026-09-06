@@ -48,8 +48,7 @@ module Make (Resource : Core.Resource) = struct
         | None, _ -> Error "the namespaced owner has no namespace"
         | Some owner_namespace, None ->
             Error
-              (Printf.sprintf
-                 "the owned resource must declare namespace %s"
+              (Printf.sprintf "the owned resource must declare namespace %s"
                  owner_namespace)
         | Some owner_namespace, Some child_namespace
           when owner_namespace <> child_namespace ->

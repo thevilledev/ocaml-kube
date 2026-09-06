@@ -5,17 +5,21 @@ Before publishing, confirm the repository URL and maintainer contact in
 
 For a release candidate:
 
-1. Replace the Unreleased heading in `CHANGES.md` with the intended semantic
-   version and date.
-2. Run `opam install . --deps-only --with-test --with-doc` in a clean switch.
-3. Run `opam exec -- dune build -p kube @install @runtest @doc
+1. Set `(version ...)` in `dune-project` to the intended semantic version. Keep
+   the empty Unreleased section in `CHANGES.md` and add a versioned heading with
+   the release date below it.
+2. Regenerate `kube.opam` with `opam exec -- dune build kube.opam`, then confirm
+   that `opam lint kube.opam` passes.
+3. Run `opam install . --deps-only --with-test --with-doc` in a clean switch.
+4. Run `opam exec -- dune build -p kube @install @runtest @doc
    @codegen-check`, `codegen/update-kubernetes-api.sh --check all`, and
-   `opam lint kube.opam`.
-4. Run `test/integration_kind.sh` through every active Kubernetes-minor CI lane.
-5. Build the source archive from a clean, signed tag and install that archive in
+   `git diff --check`.
+5. Run `test/integration_kind.sh` through every active Kubernetes-minor CI lane.
+6. Build the source archive from a clean, signed tag and install that archive in
    a fresh opam switch; do not validate only the working tree.
-6. Inspect the generated API documentation and installed file list.
-7. Submit the opam-repository change only after the source archive and checksum
+7. Inspect the generated API documentation and installed file list, including
+   the `ocaml-kube` executable and every public sublibrary.
+8. Submit the opam-repository change only after the source archive and checksum
    are immutable.
 
 Publishing is intentionally a separate, explicit maintainer action. The CI

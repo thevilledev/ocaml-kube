@@ -143,7 +143,8 @@ let test_owner_guards () =
     (Result.is_error
        (Widget_reconcile.apply client ~field_manager:"widget-controller"
           wrong_type_meta));
-  Alcotest.(check int) "invalid apply stays local" 0
+  Alcotest.(check int)
+    "invalid apply stays local" 0
     (Test.request_count transport)
 
 let api_error code reason =
@@ -269,13 +270,14 @@ let test_operator_signal_shutdown () =
       output_string output signal_test_kubeconfig;
       close_out output;
       let options =
-        K.Operator.Options.make ~kubeconfig
-          ~leader_election_name:"signal-test" ()
+        K.Operator.Options.make ~kubeconfig ~leader_election_name:"signal-test"
+          ()
       in
       let result =
         K.Operator.run
           ~logger:(K.Log.create ~sink:(fun _ -> ()) ())
-          options ~components:(fun _ ->
+          options
+          ~components:(fun _ ->
             [
               K.Manager.component ~name:"waiting" (fun ~client:_ ~cancel ->
                   ignore (Unix.write_substring ready_write "r" 0 1);
@@ -299,11 +301,11 @@ let test_operator_signal_shutdown () =
             try ignore (Unix.waitpid [] child) with Unix.Unix_error _ -> ()))
         (fun () ->
           let readable, _, _ = Unix.select [ ready_read ] [] [] 5. in
-          if readable = [] then
-            Alcotest.fail "operator component did not start";
+          if readable = [] then Alcotest.fail "operator component did not start";
           let byte = Bytes.create 1 in
           Alcotest.(check int)
-            "readiness byte" 1 (Unix.read ready_read byte 0 1);
+            "readiness byte" 1
+            (Unix.read ready_read byte 0 1);
           Unix.kill child Sys.sigterm;
           let deadline = Unix.gettimeofday () +. 5. in
           let rec await () =

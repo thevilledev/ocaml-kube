@@ -151,7 +151,12 @@ let with_server serve fn =
       match client_result with
       | Ok client_value -> (client_value, server_value)
       | Error exn -> raise exn)
-  | Some (Error message) -> Alcotest.fail ("server failed: " ^ message)
+  | Some (Error message) -> (
+      match client_result with
+      | Ok _ -> Alcotest.fail ("server failed: " ^ message)
+      | Error exn ->
+          Alcotest.failf "server failed: %s; client failed: %s" message
+            (Printexc.to_string exn))
   | None -> Alcotest.fail "server produced no result"
 
 let test_handshake_accept () =
@@ -536,8 +541,7 @@ let test_port_forwarder_recovers_from_stream_error () =
     receive_input ();
     write_all descriptor
       (server_frame 2
-         (K.Port_forward.For_testing.data ~stream_id:second_error ~fin:true
-            ""));
+         (K.Port_forward.For_testing.data ~stream_id:second_error ~fin:true ""));
     write_all descriptor
       (server_frame 2
          (K.Port_forward.For_testing.data ~stream_id:second_data ~fin:true
@@ -588,11 +592,16 @@ let test_port_forwarder_recovers_from_stream_error () =
                     write_all first "discard";
                     Unix.shutdown first Unix.SHUTDOWN_SEND;
                     let probe = Bytes.create 1 in
-                    Alcotest.(check int)
-                      "failed connection closes locally" 0
-                      (Unix.read first probe 0 1));
+                    let closed =
+                      try Unix.read first probe 0 1 = 0
+                      with Unix.Unix_error (Unix.ECONNRESET, _, _) -> true
+                    in
+                    Alcotest.(check bool)
+                      "failed connection closes locally" true closed);
                 let deadline = Unix.gettimeofday () +. 2. in
-                while Atomic.get errors = 0 && Unix.gettimeofday () < deadline do
+                while
+                  Atomic.get errors = 0 && Unix.gettimeofday () < deadline
+                do
                   Thread.delay 0.001
                 done;
                 Alcotest.(check int)

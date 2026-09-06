@@ -136,11 +136,14 @@ let read_http_response descriptor =
   read ()
 
 let port_forward_attempt ~cancel client ~namespace ~pod =
-  let mapping = K.Port_forward.Forwarder.{ local_port = 0; remote_port = 8080 } in
+  let mapping =
+    K.Port_forward.Forwarder.{ local_port = 0; remote_port = 8080 }
+  in
   let connection_error = Atomic.make None in
   match
     K.Port_forward.Forwarder.start ~cancel ~namespace
-      ~on_connection_error:(fun error -> Atomic.set connection_error (Some error))
+      ~on_connection_error:(fun error ->
+        Atomic.set connection_error (Some error))
       client ~pod ~ports:[ mapping ] ()
   with
   | Error error ->
@@ -177,9 +180,10 @@ let port_forward_attempt ~cancel client ~namespace ~pod =
                   let result =
                     match result with
                     | Ok response when not (contains response "200 OK") ->
-                        Error "HTTP response did not contain a successful status"
-                    | Ok response when not (contains response "port-forward-ok") ->
-                        Error "HTTP response did not contain the Pod payload"
+                        Error
+                          "HTTP response did not contain a successful status"
+                    | Ok response when not (contains response "port-forward-ok")
+                      -> Error "HTTP response did not contain the Pod payload"
                     | Ok _ -> Ok ()
                     | Error _ as error -> error
                   in
@@ -189,7 +193,7 @@ let port_forward_attempt ~cancel client ~namespace ~pod =
                   | Error message, Some error ->
                       Error
                         (message ^ "; forwarder: "
-                       ^ Format.asprintf "%a" K.Port_forward.pp_error error))
+                        ^ Format.asprintf "%a" K.Port_forward.pp_error error))
           | _ -> Error "forwarder bound an unexpected listener count")
 
 let check_port_forward client ~namespace ~pod =

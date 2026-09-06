@@ -2299,8 +2299,8 @@ let test_shared_reflector_cache () =
                 (controller ^ " reconciliation metric")
                 true
                 (contains_substring rendered_metrics
-                   ("ocaml_kube_reconciliations_total{controller=\"" ^ controller
-                  ^ "\",result=\"done\"} 1"));
+                   ("ocaml_kube_reconciliations_total{controller=\""
+                  ^ controller ^ "\",result=\"done\"} 1"));
               Alcotest.(check bool)
                 (controller ^ " active workers drained")
                 true

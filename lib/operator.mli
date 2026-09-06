@@ -44,10 +44,9 @@ type context = {
   workers : int;
   identity : string;
 }
-(** Shared dependencies provided while building controller components.
-    [cancel] is the process lifetime. A component's run callback receives the
-    narrower manager token, including leadership loss when election is enabled.
-*)
+(** Shared dependencies provided while building controller components. [cancel]
+    is the process lifetime. A component's run callback receives the narrower
+    manager token, including leadership loss when election is enabled. *)
 
 val run_with_client :
   ?cancel:Cancel.t ->

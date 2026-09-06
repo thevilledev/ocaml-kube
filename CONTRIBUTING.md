@@ -1,7 +1,8 @@
 # Contributing
 
-Contributions are welcome. Until the first release, public APIs can still change,
-but changes should preserve Kubernetes protocol correctness and include tests.
+Contributions are welcome. During the 0.x series, public APIs may change between
+minor releases, but changes should preserve Kubernetes protocol correctness,
+document compatibility impact, and include tests.
 
 ## Development setup
 

@@ -1,5 +1,6 @@
 (lang dune 3.15)
 (name kube)
+(version 0.1.0)
 (generate_opam_files true)
 (source (github thevilledev/ocaml-kube))
 (license Apache-2.0)

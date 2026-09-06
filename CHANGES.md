@@ -1,19 +1,10 @@
 # Changelog
 
-All notable changes will be recorded here. The project follows Semantic
-Versioning once the first release is tagged.
+All notable changes are recorded here. The project follows Semantic Versioning.
 
 ## Unreleased
 
-### Fixed
-
-- Reliable SIGINT and SIGTERM cancellation while the operator supervisor is
-  blocked waiting for components, including generated operators on Linux.
-- Leader-election standby readiness now reports healthy while participating in
-  election, preventing multi-replica rolling deployments from deadlocking while
-  preserving the active-leader metric and single-reconciler execution.
-- Recoverable per-connection port-forward stream failures, with bounded and
-  diagnostic integration probes instead of indefinite CI hangs.
+## 0.1.0 - 2026-09-06
 
 ### Added
 
@@ -181,6 +172,14 @@ Versioning once the first release is tagged.
 
 ### Fixed
 
+- Reliable SIGINT and SIGTERM cancellation while the operator supervisor is
+  blocked waiting for components, including generated operators on Linux.
+- Leader-election standby readiness now reports healthy while participating in
+  election, preventing multi-replica rolling deployments from deadlocking while
+  preserving the active-leader metric and single-reconciler execution.
+- Recoverable per-connection port-forward stream failures, with bounded and
+  diagnostic integration probes instead of indefinite CI hangs, and portable
+  regression coverage for both clean EOF and connection-reset closure.
 - Use a process-local monotonic clock for cancellation deadlines, controller
   latency, discovery cooldowns, queue scheduling, rate limiting, reflector
   recovery, exec-helper timeouts, diagnostics, and Lease expiry observation, so

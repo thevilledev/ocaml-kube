@@ -27,8 +27,7 @@ module Make (Resource : Core.Resource) : sig
       metadata supplies its name and, unless overridden, namespace.
       [field_manager] is the stable ownership identity recorded by Kubernetes.
       Missing TypeMeta is filled from [Resource.api]; conflicting TypeMeta is
-      rejected locally.
-  *)
+      rejected locally. *)
 
   val apply_owned :
     ?cancel:Cancel.t ->

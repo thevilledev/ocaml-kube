@@ -1,8 +1,8 @@
 # Security policy
 
-This project has not made its first stable release. Security fixes will be
-applied to the latest development branch until a supported-release policy is
-announced.
+Security fixes are applied to the latest 0.1.x release and the `main` branch.
+Older 0.x release lines are not supported unless their release notes say
+otherwise.
 
 Please report vulnerabilities privately to `ville@vesilehto.fi`. Include the
 affected revision, impact, reproduction details, and any suggested mitigation.

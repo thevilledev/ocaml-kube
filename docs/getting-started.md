@@ -1,7 +1,13 @@
 # Getting started
 
-The project is not yet published to OPAM. Build it from the repository with an
-OCaml 5.1 or newer switch:
+ocaml-kube requires OCaml 5.1 or newer. Install the released package with:
+
+```sh
+opam install kube
+```
+
+To build the development checkout instead, install its dependencies and run
+the complete local build:
 
 ```sh
 opam install . --deps-only --with-test --with-doc

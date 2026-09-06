@@ -7,7 +7,8 @@ A native OCaml 5 client and controller runtime for Kubernetes®.
 > is independent and is not affiliated with, sponsored by, or endorsed by The
 > Linux Foundation or the Kubernetes project.
 
-The project is pre-release and has not yet been published to OPAM.
+The current release is **v0.1.0**. The public API is usable, but may still evolve
+between minor releases while the project is in the 0.x series.
 
 ## Highlights
 
@@ -24,9 +25,20 @@ The project is pre-release and has not yet been published to OPAM.
   conflict retries, standard status conditions, and compilation-checked common
   patterns.
 
-## Build
+## Install
 
-OCaml 5.1 or newer and OPAM are required.
+OCaml 5.1 or newer and OPAM are required. Install the released package with:
+
+```sh
+opam install kube
+```
+
+The OPAM package installs the `kube` libraries and the `ocaml-kube` scaffolding
+command.
+
+## Build from source
+
+To build the development checkout with its tests and API documentation:
 
 ```sh
 opam install . --deps-only --with-test --with-doc
