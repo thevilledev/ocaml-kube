@@ -25,6 +25,19 @@ jobs:
       - run: opam exec -- dune runtest
       - run: opam lint kube.opam
 
+  lower-bounds:
+    runs-on: avrea-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2.1"
+          dune-cache: true
+      - name: Install with lower dependency bounds
+        run: >-
+          opam install --solver=builtin-0install
+          "--criteria=+count[version-lag,solution]" .
+
   scaffold-acceptance:
     runs-on: avrea-ubuntu-latest
     steps:

@@ -22,7 +22,7 @@
   domain-name
   ipaddr
   mirage-crypto-rng
-  ppxlib
+  (ppxlib (>= 0.36.0))
   ptime
   (secret (>= 0.1.2))
   (tls (>= 2.1.1))
