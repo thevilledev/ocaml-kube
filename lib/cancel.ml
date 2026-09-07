@@ -50,7 +50,7 @@ let cancel t =
 let sleep t seconds =
   if is_cancelled t then false
   else
-    let wake_read, wake_write = Unix.pipe ~cloexec:true () in
+    let wake_read, wake_write = Wakeup.create () in
     Unix.set_nonblock wake_write;
     let wake_lock = Mutex.create () in
     let wake_open = ref true in

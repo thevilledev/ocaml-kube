@@ -136,7 +136,7 @@ module Scheduler = struct
       run scheduler)
 
   let create ~cancel queue =
-    let wake_read, wake_write = Unix.pipe ~cloexec:true () in
+    let wake_read, wake_write = Wakeup.create () in
     Unix.set_nonblock wake_read;
     Unix.set_nonblock wake_write;
     let scheduler =

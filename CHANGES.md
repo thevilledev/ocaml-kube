@@ -4,6 +4,15 @@ All notable changes are recorded here. The project follows Semantic Versioning.
 
 ## Unreleased
 
+## 0.1.3 - 2026-09-07
+
+### Fixed
+
+- Build and run on native Win32 while retaining protected credential handling:
+  require `secret` 0.1.3 for direct Win32 secret I/O, use a native monotonic
+  clock, use selectable socket pairs for internal wakeups, and use the
+  platform null device for exec credentials.
+
 ## 0.1.2 - 2026-09-07
 
 ### Fixed

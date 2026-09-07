@@ -1,6 +1,6 @@
 (lang dune 3.15)
 (name kube)
-(version 0.1.2)
+(version 0.1.3)
 (generate_opam_files true)
 (source (github thevilledev/ocaml-kube))
 (license Apache-2.0)
@@ -24,7 +24,7 @@
   mirage-crypto-rng
   (ppxlib (>= 0.36.0))
   ptime
-  (secret (>= 0.1.2))
+  (secret (>= 0.1.3))
   (tls (>= 2.1.1))
   uri
   x509

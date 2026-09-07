@@ -572,7 +572,7 @@ let environment_with overrides =
 let read_process_output ~timeout_seconds ~max_bytes command args environment =
   let stdout_read, stdout_write = Unix.pipe ~cloexec:true () in
   let stderr_read, stderr_write = Unix.pipe ~cloexec:true () in
-  let dev_null = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
+  let dev_null = Unix.openfile Filename.null [ Unix.O_RDONLY ] 0 in
   let close_noerr descriptor =
     try Unix.close descriptor with Unix.Unix_error _ -> ()
   in
@@ -595,8 +595,9 @@ let read_process_output ~timeout_seconds ~max_bytes command args environment =
     close_noerr dev_null;
     close_noerr stdout_write;
     close_noerr stderr_write;
-    Unix.set_nonblock stdout_read;
-    Unix.set_nonblock stderr_read;
+    if not Sys.win32 then (
+      Unix.set_nonblock stdout_read;
+      Unix.set_nonblock stderr_read);
     let stdout_buffer = Buffer.create 4096 in
     let stderr_buffer = Buffer.create 1024 in
     let stdout_open = ref true in
@@ -616,7 +617,7 @@ let read_process_output ~timeout_seconds ~max_bytes command args environment =
                     max_bytes))
           else (
             Buffer.add_subbytes buffer scratch 0 count;
-            loop ())
+            if not Sys.win32 then loop ())
         with Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> ()
       in
       loop ()
