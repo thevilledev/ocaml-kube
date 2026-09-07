@@ -4,6 +4,14 @@ All notable changes are recorded here. The project follows Semantic Versioning.
 
 ## Unreleased
 
+## 0.1.2 - 2026-09-07
+
+### Fixed
+
+- Require `ppxlib` 0.36.0 or newer so the `kube.ppx` deriver compiles when opam
+  selects lower dependency bounds, and exercise lower-bound installs in project
+  CI to prevent regressions.
+
 ## 0.1.1 - 2026-09-06
 
 ### Fixed
