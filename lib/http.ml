@@ -224,7 +224,7 @@ let unix_error code fn argument =
   Printf.sprintf "%s(%s): %s" fn argument (Unix.error_message code)
 
 let resolve cancel host port =
-  let wake_read, wake_write = Unix.pipe ~cloexec:true () in
+  let wake_read, wake_write = Wakeup.create () in
   let lock = Mutex.create () in
   let result = ref None in
   let publish value =

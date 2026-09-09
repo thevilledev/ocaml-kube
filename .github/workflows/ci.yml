@@ -25,6 +25,21 @@ jobs:
       - run: opam exec -- dune runtest
       - run: opam lint kube.opam
 
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.5.1"
+          dune-cache: true
+      - run: opam install . --deps-only --with-test
+      - run: opam exec -- dune build @all @install
+      - run: opam exec -- dune exec test/test_portability.exe
+
   lower-bounds:
     runs-on: avrea-ubuntu-latest
     steps:

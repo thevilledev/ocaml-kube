@@ -6,7 +6,8 @@
 (test
  (name test_kube)
  (modules test_kube)
- (enabled_if (= %{env:OPAM_REPO_CI=false} false))
+ (enabled_if
+  (= %{env:OPAM_REPO_CI=false} false))
  (libraries kube fake_api_server alcotest))
 
 (test
@@ -28,7 +29,8 @@
 (test
  (name test_admission)
  (modules test_admission)
- (enabled_if (= %{env:OPAM_REPO_CI=false} false))
+ (enabled_if
+  (= %{env:OPAM_REPO_CI=false} false))
  (libraries kube alcotest base64 yojson)
  (deps fixtures/webhook-cert.pem fixtures/webhook-key.pem))
 
@@ -45,7 +47,8 @@
 (test
  (name test_streaming)
  (modules test_streaming)
- (enabled_if (= %{env:OPAM_REPO_CI=false} false))
+ (enabled_if
+  (= %{env:OPAM_REPO_CI=false} false))
  (libraries kube fake_api_server alcotest yojson))
 
 (test
@@ -57,3 +60,8 @@
  (name test_sensitive)
  (modules test_sensitive)
  (libraries kube alcotest yojson uri))
+
+(test
+ (name test_portability)
+ (modules test_portability)
+ (libraries kube alcotest uri))
