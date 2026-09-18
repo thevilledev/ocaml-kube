@@ -4,6 +4,12 @@ All notable changes are recorded here. The project follows Semantic Versioning.
 
 ## Unreleased
 
+### Changed
+
+- Promote Kubernetes 1.37 to the regular compatibility matrix using the
+  official kind v0.33 node image, so the complete integration scenario runs on
+  every pull request and push as well as scheduled builds.
+
 ## 0.1.3 - 2026-09-09
 
 ### Fixed

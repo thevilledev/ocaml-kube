@@ -18,15 +18,14 @@ available.
 
 | Kubernetes | Status | Test environment |
 | --- | --- | --- |
-| 1.34 | CI lane and local matrix | kind v0.32 / node v1.34.8 |
-| 1.35 | CI lane and local matrix | kind v0.32 / node v1.35.5 |
-| 1.36 | CI lane and local matrix | kind v0.32 / node v1.36.1 |
-| 1.37 | Source-built edge lane and local matrix | kind v0.32 node built from v1.37.0 artifacts |
+| 1.34 | CI lane and local matrix | kind v0.33 / node v1.34.11 |
+| 1.35 | CI lane and local matrix | kind v0.33 / node v1.35.8 |
+| 1.36 | CI lane and local matrix | kind v0.33 / node v1.36.4 |
+| 1.37 | CI lane and local matrix | kind v0.33 / node v1.37.0 |
 
-The 1.37 lane builds a node image because kind v0.32 predates an official 1.37
-node image. It is scheduled separately from pull-request CI because building the
-image is substantially more expensive. The complete integration scenario has
-also passed locally against that source-built image.
+Each lane runs the complete integration scenario for pull requests, pushes,
+scheduled builds, and manual workflow runs. Node images and the kind binary are
+checksum-pinned to the matching upstream kind release.
 
 ## Why one client release can span minors
 
